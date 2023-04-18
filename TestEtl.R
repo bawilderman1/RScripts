@@ -4,6 +4,7 @@ library(lubridate)
 library(slider)
 library(purrr)
 library("DBI")
+library(cowplot)
 
 require(httr)
 
@@ -174,7 +175,7 @@ rf1 <- rf %>%
   mutate(day_low = min(low)) %>% 
   mutate(day_open = first(open)) %>% 
   mutate(day_close = last(close)) %>% 
-  mutate(day_half = if_else(bar_of_day <= 13, 1, 2))
+  mutate(day_half = if_else(bar_of_day <= 13, 1, 2)) %>% 
   ungroup()
 head(rf1)
 
@@ -188,3 +189,40 @@ drf3 <- dbGetQuery(con, "SELECT * FROM DIA_15M WHERE date < '2023-02-10'")
 dbExecute(con, "COPY DIA_15M TO 'DIA_15m.parquet' (FORMAT 'PARQUET', allow_overwrite TRUE)")
 drf4 <- dbGetQuery(con, "SELECT * FROM DIA_15m.parquet")
 dbDisconnect(con, shutdown=TRUE)
+
+pudh <- ggplot(
+  rf1 %>% 
+    filter(high == day_high) %>% 
+    filter(day_close > day_open),
+  aes(x = bar_of_day)) +
+  geom_histogram(bins = 26) +
+  ggtitle("High Bar of Day", "Up Day")
+
+pudl <- ggplot(
+  rf1 %>% 
+    filter(low == day_low) %>% 
+    filter(day_close > day_open),
+  aes(x = bar_of_day)) +
+  geom_histogram(bins = 26) +
+  ggtitle("Low Bar of Day", "Up Day")
+
+pddh <- ggplot(
+  rf1 %>% 
+    filter(high == day_high) %>% 
+    filter(day_close < day_open),
+  aes(x = bar_of_day)) +
+  geom_histogram(bins = 26) +
+  ggtitle("High Bar of Day", "Down Day")
+
+pddl <- ggplot(
+  rf1 %>% 
+    filter(low == day_low) %>% 
+    filter(day_close < day_open),
+  aes(x = bar_of_day)) +
+  geom_histogram(bins = 26) +
+  ggtitle("Low Bar of Day", "Down Day")
+
+cowplot::plot_grid(
+  pudh, pudl, pddh, pddl,
+  labels = "AUTO", ncol = 2, align = "h"
+)
