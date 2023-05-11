@@ -5,6 +5,8 @@ library(slider)
 library(purrr)
 library("DBI")
 library(cowplot)
+library(ggthemes)
+library(scales)
 
 require(httr)
 
@@ -190,39 +192,77 @@ dbExecute(con, "COPY DIA_15M TO 'DIA_15m.parquet' (FORMAT 'PARQUET', allow_overw
 drf4 <- dbGetQuery(con, "SELECT * FROM DIA_15m.parquet")
 dbDisconnect(con, shutdown=TRUE)
 
+show_col(tableau_color_pal("Classic 10 Medium")(10))
+tcm <- ggthemes_data$tableau$`color-palettes`$regular$`Classic 10 Medium`
+tcm$value[3]
+
+# rf1  %>% 
+#   filter(high == day_high) %>% 
+#   filter(day_close > day_open) %>%
+#   select(bar_of_day) %>%
+#   group_by(bar_of_day) %>%
+#   summarise(count = n())
+
 pudh <- ggplot(
-  rf1 %>% 
-    filter(high == day_high) %>% 
-    filter(day_close > day_open),
-  aes(x = bar_of_day)) +
-  geom_histogram(bins = 26) +
-  ggtitle("High Bar of Day", "Up Day")
+    rf1 %>% 
+      filter(high == day_high) %>% 
+      filter(day_close > day_open),
+    aes(x = bar_of_day)
+  ) +
+  geom_histogram(bins = 26, binwidth = 1, fill = tcm$value[3]) +
+  geom_vline(aes(xintercept = 13), color = tcm$value[1], linetype = "dashed") +
+  expand_limits(x = seq(1, 26, by = 1)) +
+  scale_x_continuous(breaks = seq(0, 26, by = 5)) +
+  labs(subtitle = "High Bar of Day", x = "Bar of Day") +
+  theme_hc()
 
 pudl <- ggplot(
-  rf1 %>% 
-    filter(low == day_low) %>% 
-    filter(day_close > day_open),
-  aes(x = bar_of_day)) +
-  geom_histogram(bins = 26) +
-  ggtitle("Low Bar of Day", "Up Day")
+    rf1 %>% 
+      filter(low == day_low) %>% 
+      filter(day_close > day_open),
+    aes(x = bar_of_day)) +
+  geom_histogram(bins = 26, binwidth = 1, fill = tcm$value[4]) +
+  geom_vline(aes(xintercept = 13), color = tcm$value[1], linetype = "dashed") +
+  expand_limits(x = seq(1, 26, by = 1)) +
+  scale_x_continuous(breaks = seq(0, 26, by = 5)) +
+  labs(subtitle = "Low Bar of Day", x = "Bar of Day") +
+  theme_hc()
 
 pddh <- ggplot(
-  rf1 %>% 
-    filter(high == day_high) %>% 
-    filter(day_close < day_open),
-  aes(x = bar_of_day)) +
-  geom_histogram(bins = 26) +
-  ggtitle("High Bar of Day", "Down Day")
+    rf1 %>% 
+      filter(high == day_high) %>% 
+      filter(day_close < day_open),
+    aes(x = bar_of_day)
+  ) +
+  geom_histogram(bins = 26, binwidth = 1, fill = tcm$value[3]) +
+  geom_vline(aes(xintercept = 13), color = tcm$value[1], linetype = "dashed") +
+  expand_limits(x = seq(1, 26, by = 1)) +
+  scale_x_continuous(breaks = seq(0, 26, by = 5)) +
+  labs(subtitle = "High Bar of Day", x = "Bar of Day") +
+  theme_hc()
 
 pddl <- ggplot(
-  rf1 %>% 
-    filter(low == day_low) %>% 
-    filter(day_close < day_open),
-  aes(x = bar_of_day)) +
-  geom_histogram(bins = 26) +
-  ggtitle("Low Bar of Day", "Down Day")
+    rf1 %>% 
+      filter(low == day_low) %>% 
+      filter(day_close < day_open),
+    aes(x = bar_of_day)
+  ) +
+  geom_histogram(bins = 26, binwidth = 1, fill = tcm$value[4]) +
+  geom_vline(aes(xintercept = 13), color = tcm$value[1], linetype = "dashed") +
+  expand_limits(x = seq(1, 26, by = 1)) +
+  scale_x_continuous(breaks = seq(0, 26, by = 5)) +
+  labs(subtitle = "Low Bar of Day", x = "Bar of Day") +
+  theme_hc()
 
 cowplot::plot_grid(
   pudh, pudl, pddh, pddl,
-  labels = "AUTO", ncol = 2, align = "h"
+  ncol = 2, align = "h"
 )
+
+tr1 <- ggdraw() + 
+  draw_label("Up Day", fontface = 'bold', hjust = 0.5)
+pr1 <- plot_grid(pudl, pudh, ncol = 2, align = "v")
+tr2 <- ggdraw() + 
+  draw_label("Down Day", fontface = 'bold', hjust = 0.5)
+pr2 <- plot_grid(pddh, pddl, ncol = 2, align = "v")
+plot_grid(tr1, pr1, tr2, pr2, ncol = 1, align = "h", rel_heights = c(0.15, 1, 0.15, 1))
