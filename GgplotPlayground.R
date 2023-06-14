@@ -1,5 +1,5 @@
 library(tidyverse)
-library(lubridate)
+library(lubridate, warn.conflicts = false)
 
 t <- tribble(~x, ~y,
              1, 1,
@@ -98,3 +98,29 @@ f <- factor(d$x)
 typeof(f)
 class(f)
 levels(f)
+
+# library(glue)
+# str_glue('{format(testDate, "%b %d")}', testDate = ymd_hm("2023-06-05T09:30"))
+dttm <- ymd_hm("2023-06-05T09:30")
+format(dttm, "%b %d")
+format(dttm, "%H:%M")
+
+format(dttm, "%H:%M") == "09:30"
+format(dttm, "%H:%M") %in% c("09:30", "12:30")
+format(dttm, "%H:%M") %>%  is.element(c("09:30", "12:30"))
+
+dBreaks <- d$x %>% purrr::keep(function(x) format(x, "%H:%M") %in% c("09:30", "12:30"))
+dBreaks
+
+dLabels <- dBreaks %>% purrr::map_chr(function(x) { if_else(format(x, "%H:%M") == "09:30", format(x, "%b %d"), format(x, "%H:%M")) })
+dLabels
+
+d %>% 
+  ggplot(aes(x = factor(x), y = y)) +
+  geom_point() + 
+  scale_x_discrete(
+    name = "Discrete Date",
+    breaks = factor(dBreaks),
+    labels = dLabels
+  ) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
