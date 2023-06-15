@@ -115,9 +115,17 @@ dBreaks
 dLabels <- dBreaks %>% purrr::map_chr(function(x) { if_else(format(x, "%H:%M") == "09:30", format(x, "%b %d"), format(x, "%H:%M")) })
 dLabels
 
+z <- tribble(~xmins,~xmaxs, ~ymins, ~ymaxs,
+             "2023-06-06 10:00:00", "2023-06-06 14:00:00", -Inf, Inf,
+             "2023-06-07 11:00:00", "2023-06-07 13:30:00", -Inf, Inf)
+
 d %>% 
   ggplot(aes(x = factor(x), y = y)) +
-  geom_point() + 
+  # ggplot() +
+  geom_rect(aes(xmin = "2023-06-06 10:00:00", xmax = "2023-06-06 14:00:00", ymin = -Inf, ymax = Inf), fill = "steelblue", colour = "transparent", alpha = 0.01) +
+  # geom_rect(data = z, aes(xmin = xmins, xmax = xmaxs, ymin = ymins, ymax = ymaxs), fill = "steelblue", colour = "transparent", alpha = 0.01) +
+  geom_point() +
+  # geom_point(data = d, aes(x = factor(x), y = y)) +
   scale_x_discrete(
     name = "Discrete Date",
     breaks = factor(dBreaks),
