@@ -1,5 +1,6 @@
 library(tidyverse)
 library(lubridate, warn.conflicts = false)
+library(tidyquant)
 
 t <- tribble(~x, ~y,
              1, 1,
@@ -132,3 +133,59 @@ d %>%
     labels = dLabels
   ) +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+c <- tribble(~dt, ~l, ~o, ~c, ~h, ~hasCond, ~z,
+             ymd_hm("2023-06-05T09:30"), 5, 5.4, 5.6, 6, FALSE, 1,
+             ymd_hm("2023-06-05T10:00"), 5.1, 5.4, 5.6, 6.1, FALSE, 1,
+             ymd_hm("2023-06-05T10:30"), 5.2, 5.6, 5.3, 6.2, TRUE, 1,
+             ymd_hm("2023-06-05T11:00"), 5.3, 5.3, 5.6, 6.3, TRUE, 1,
+             ymd_hm("2023-06-05T11:30"), 5.4, 5.6, 6.1, 6.4, TRUE, 1,
+             ymd_hm("2023-06-05T12:00"), 5.5, 6.1, 5.8, 6.5, TRUE, 1,
+             ymd_hm("2023-06-05T12:30"), 5.6, 5.8, 6.3, 6.6, TRUE, 1,
+             ymd_hm("2023-06-05T13:00"), 5.5, 6.3, 5.8, 6.5, FALSE, 1,
+             ymd_hm("2023-06-05T13:30"), 5.4, 5.8, 6.1, 6.4, FALSE, 1,
+             ymd_hm("2023-06-05T14:00"), 5.3, 6.1, 5.6, 6.3, FALSE, 1,
+             ymd_hm("2023-06-05T14:30"), 5.2, 5.6, 5.3, 6.2, FALSE, 1,
+             ymd_hm("2023-06-05T15:00"), 5.1, 5.3, 5.5, 6.1, FALSE, 1,
+             ymd_hm("2023-06-05T15:30"), 5, 5.5, 6, 6, FALSE, 1,
+             ymd_hm("2023-06-06T09:30"), 10, 10.8, 11.2, 12, FALSE, 1,
+             ymd_hm("2023-06-06T10:00"), 10.2, 10.8, 11.2, 12.2, FALSE, 1,
+             ymd_hm("2023-06-06T10:30"), 10.4, 11.2, 10.6, 12.4, FALSE, 1,
+             ymd_hm("2023-06-06T11:00"), 10.6, 10.6, 11.2, 12.6, FALSE, 1,
+             ymd_hm("2023-06-06T11:30"), 10.8, 11.2, 12.2, 12.8, FALSE, 1,
+             ymd_hm("2023-06-06T12:00"), 11, 12.2, 11.6, 13, FALSE, 1,
+             ymd_hm("2023-06-06T12:30"), 11.2, 11.6, 12.6, 13.2, FALSE, 1,
+             ymd_hm("2023-06-06T13:00"), 11, 12.6, 11.6, 13, FALSE, 1,
+             ymd_hm("2023-06-06T13:30"), 10.8, 11.6, 12.2, 12.8, FALSE, 1,
+             ymd_hm("2023-06-06T14:00"), 10.6, 12.2, 11.2, 12.6, FALSE, 1,
+             ymd_hm("2023-06-06T14:30"), 10.4, 11.2, 10.6, 12.4, FALSE, 1,
+             ymd_hm("2023-06-06T15:00"), 10.2, 10.6, 11, 12.2, FALSE, 1,
+             ymd_hm("2023-06-06T15:30"), 10, 11, 12, 12, FALSE, 1,
+             ymd_hm("2023-06-07T09:30"), 20, 21.6, 22.4, 24, FALSE, 1,
+             ymd_hm("2023-06-07T10:00"), 20.4, 21.6, 22.4, 24.4, FALSE, 1,
+             ymd_hm("2023-06-07T10:30"), 20.8, 22.4, 21.2, 24.8, FALSE, 1,
+             ymd_hm("2023-06-07T11:00"), 21.2, 21.2, 22.4, 25.2, TRUE, 1,
+             ymd_hm("2023-06-07T11:30"), 21.6, 22.4, 24.4, 25.6, TRUE, 1,
+             ymd_hm("2023-06-07T12:00"), 22, 24.4, 23.2, 26, TRUE, 1,
+             ymd_hm("2023-06-07T12:30"), 22.4, 23.2, 25.2, 26.4, TRUE, 1,
+             ymd_hm("2023-06-07T13:00"), 22, 25.2, 23.2, 26, TRUE, 1,
+             ymd_hm("2023-06-07T13:30"), 21.6, 23.2, 24.4, 25.6, TRUE, 1,
+             ymd_hm("2023-06-07T14:00"), 21.2, 24.4, 22.4, 25.2, TRUE, 1,
+             ymd_hm("2023-06-07T14:30"), 20.8, 22.4, 21.2, 24.8, FALSE, 1,
+             ymd_hm("2023-06-07T15:00"), 20.4, 21.2, 22, 24.4, FALSE, 1,
+             ymd_hm("2023-06-07T15:30"), 20, 22, 24, 24, FALSE, 1,)
+
+c %>% 
+  ggplot(aes(x = factor(dt), y = c)) +
+  geom_tile(aes(height = if_else(hasCond, Inf, NA), width = 1, alpha = 0.01), na.rm = TRUE) +
+  geom_candlestick(aes(open = o, close = c, high = h, low = l), fill_up = "dodgerblue3", colour_up = "dodgerblue3", fill_down = "firebrick3", colour_down = "firebrick3") +
+  coord_trans(y = "log2") +
+  #coord_trans(y = "log10") +
+  labs(y = "Price ($)", title = "My Graph", caption = "My Note") +
+  scale_x_discrete(
+    name = "Discrete Date",
+    breaks = c("2023-06-05 09:30:00","2023-06-05 12:30:00","2023-06-06 09:30:00","2023-06-06 12:30:00","2023-06-07 09:30:00","2023-06-07 12:30:00"),
+    labels = c("Jun 5","12:30","Jun 6","12:30","Jun 7","12:30")) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+      
+  )
