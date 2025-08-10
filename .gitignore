@@ -37,3 +37,6 @@ vignettes/*.pdf
 
 # R Environment Variables
 .Renviron
+
+# Gemini Context File
+BacktestScripts/GEMINI.md
