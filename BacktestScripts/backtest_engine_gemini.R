@@ -340,17 +340,17 @@ bt_totals_func <- \(tbl, trds_tbl) {
               max_cum_drawdn_pct = min(tbl$drawdn))  
 } 
 
-bt_unrlzd_func <- \(tbl, init_eqty, incl_buynhold) {
+bt_unrlzd_func <- \(tbl, strat_cfg) {
   unrlzd_tbl = tbl |>
     summarise(
-      unrlzd_net_profit = last(eqty) - init_eqty,
+      unrlzd_net_profit = last(eqty) - strat_cfg$init_eqty,
       unrlzd_roa_pct = exp(sum(pct_chg)) - 1
     )
   
-  if (incl_buynhold) {
+  if (strat_cfg$incl_buynhold) {
     bnh_unrlzd_tbl = tbl |>
       summarise(
-        bnh_net_profit = last(bnh_eqty) - init_eqty,
+        bnh_net_profit = last(bnh_eqty) - strat_cfg$init_eqty,
         bnh_ttl_roa_pct = exp(sum(bnh_pct_chg)) - 1
       )
     
@@ -364,24 +364,24 @@ bt_unrlzd_func <- \(tbl, init_eqty, incl_buynhold) {
   return(unrlzd_tbl)
 } 
 
-bt_yrly_func <- \(tbl, init_eqty, incl_buynhold) {
+bt_yrly_func <- \(tbl, strat_cfg) {
   yrly_tbl = tbl |>
     mutate(yr = year(dt),
            prev_eqty = lag(eqty)) |>
     group_by(yr) |>
     summarise(st_eqty = if_else(is.na(first(prev_eqty)),
-                                init_eqty,
+                                strat_cfg$init_eqty,
                                 first(prev_eqty)),
               end_eqty = last(eqty),
               max_yr_drawdn = min(drawdn))
   
-  if (incl_buynhold) {
+  if (strat_cfg$incl_buynhold) {
     bnh_yrly_tbl = tbl |>
       mutate(yr = year(dt),
              bnh_prev_eqty = lag(bnh_eqty)) |>
       group_by(yr) |>
       summarise(bnh_st_eqty = if_else(is.na(first(bnh_prev_eqty)),
-                                      init_eqty,
+                                      strat_cfg$init_eqty,
                                       first(bnh_prev_eqty)),
                 bnh_end_eqty = last(bnh_eqty),
                 bnh_max_yr_dd = min(bnh_dd))
@@ -471,7 +471,7 @@ calcs_bnh_func <- \(tbl, yrly_tbl) {
   ))
 }
 
-bt_viz_func <- \(metrics, init_eqty = 10000, incl_buynhold = FALSE) {
+bt_viz_func <- \(metrics, strat_cfg) {
   wnr = metrics$data_winloss |> dplyr::filter(trd_rslt == "Winner")
   lsr = metrics$data_winloss |> dplyr::filter(trd_rslt == "Loser")
   ttl = metrics$data_totals
@@ -501,11 +501,11 @@ bt_viz_func <- \(metrics, init_eqty = 10000, incl_buynhold = FALSE) {
     "Total Months", "Misc. Stats", nrow(metrics$data_series), NA, NA,
     "Trade Months", "Misc. Stats", nrow((metrics$data_series) |> drop_na()), NA, NA,
     "Time in Market", "Misc. Stats", metrics$calcs_strtgy$time_in_mkt, NA, NA,
-    "Initial Equity", "Misc. Stats", init_eqty, NA, NA,
+    "Initial Equity", "Misc. Stats", strat_cfg$init_eqty, NA, NA,
     "End Equity", "Misc. Stats", last(metrics$data_series$eqty), NA, NA,
   )
   
-  if (incl_buynhold) {
+  if (strat_cfg$incl_buynhold) {
     bnh_list = list(
       "Trade Count" = NA,
       "Profit & Loss" = NA,
@@ -527,7 +527,7 @@ bt_viz_func <- \(metrics, init_eqty = 10000, incl_buynhold = FALSE) {
       "Total Months" = NA,
       "Trade Months" = NA,
       "Time in Market" = NA,
-      "Initial Equity" = init_eqty,
+      "Initial Equity" = strat_cfg$init_eqty,
       "End Equity" = last(metrics$data_series$bnh_eqty)
     )
     
@@ -578,7 +578,7 @@ bt_viz_func <- \(metrics, init_eqty = 10000, incl_buynhold = FALSE) {
     ) |>
     sub_values(fn = \(x) is.na(x), replacement = "")
   
-  if (incl_buynhold) {
+  if (strat_cfg$incl_buynhold) {
     bt_gt = bt_gt |>
       cols_label(BNH ~ "Buy & Hold") |>
       tab_spanner(label = "Strategy", columns = c("Totals", "Winners", "Losers"))
@@ -617,17 +617,16 @@ data_ex_n_trds_func <- \(data_tbl, trd_tbl, trd_type_func, n_trds) {
   return(data_ex_ds)
 }
 
-ex_n_trd_calcs_func <- \(strtgy_ex_trds, 
-                         init_eqty = 10000, 
-                         incl_dividends = FALSE) {
+ex_n_trd_calcs_func <- \(strtgy_ex_trds, strat_cfg) {
+  
+  temp_strat_cfg <- strat_cfg
+  temp_strat_cfg$incl_buynhold <- FALSE
+  
   ex_data_tbl = strtgy_ex_trds |>
-    bt_sim_func(
-      init_eqty = init_eqty,
-      incl_dividends = incl_dividends,
-      incl_buynhold = FALSE)
+    bt_sim_func(strat_cfg = temp_strat_cfg)
   
   ex_trd_tbl = ex_data_tbl |> bt_trds_func()
-  ex_yrly_tbl = ex_data_tbl |> bt_yrly_func(init_eqty, FALSE)
+  ex_yrly_tbl = ex_data_tbl |> bt_yrly_func(temp_strat_cfg)
   
   ex_calcs_strtgy = calcs_strtgy_func(
     tbl = ex_data_tbl,
@@ -648,24 +647,23 @@ rm_best_worst_trds_func <- \(data_tbl,
                              trd_tbl, 
                              orig_calcs, 
                              n_trds = 3, 
-                             init_eqty = 10000,
-                             incl_dividends = FALSE) {
+                             strat_cfg) {
   all_trds_tbl = orig_calcs |> calcs_to_row_func("none", NA)
   
   ex_best_tbl = data_ex_n_trds_func(
-    bt_metrics$data_series,
-    bt_metrics$data_trd,
+    data_tbl,
+    trd_tbl,
     get_n_best_trades,
     n_trds) |>
-    ex_n_trd_calcs_func(init_eqty, incl_dividends) |>
+    ex_n_trd_calcs_func(strat_cfg) |>
     calcs_to_row_func("best", n_trds)
   
-  ex_worst_tbl = bt_ex_worst3_tst <-data_ex_n_trds_func(
-    bt_metrics$data_series,
-    bt_metrics$data_trd,
+  ex_worst_tbl = data_ex_n_trds_func(
+    data_tbl,
+    trd_tbl,
     get_n_worst_trades,
     n_trds) |>
-    ex_n_trd_calcs_func(init_eqty, incl_dividends) |>
+    ex_n_trd_calcs_func(strat_cfg) |>
     calcs_to_row_func("worst", n_trds)
   
   comb_tbl = rbind(ex_worst_tbl, all_trds_tbl, ex_best_tbl)
@@ -738,16 +736,16 @@ bt_processor <- \(data_tbl,
   
   totals_val = bt_totals_func(data_val, trd_val)
   
-  unrlzd_val = data_val |> bt_unrlzd_func(strat_cfg$init_eqty, strat_cfg$incl_buynhold)
+  unrlzd_val = data_val |> bt_unrlzd_func(strat_cfg)
   
-  yrly_val = data_val |> bt_yrly_func(strat_cfg$init_eqty, strat_cfg$incl_buynhold)
+  yrly_val = data_val |> bt_yrly_func(strat_cfg)
   
   calcs_strtgy_val = calcs_strtgy_func(
     tbl = data_val,
     yrly_tbl = yrly_val,
     trds_tbl = trd_val)
   
-  if (incl_buynhold) {
+  if (strat_cfg$incl_buynhold) {
     calcs_bnh_val = calcs_bnh_func(
       tbl = data_val,
       yrly_tbl = yrly_val)
@@ -763,13 +761,13 @@ bt_processor <- \(data_tbl,
     calcs_strtgy = calcs_strtgy_val
   )
   
-  if (incl_buynhold) {
+  if (strat_cfg$incl_buynhold) {
     metrics_val <- append(metrics_val, list(
       calcs_bnh = calcs_bnh_val
     ))
   }
   
-  rslts_viz_func = \() bt_viz_func(metrics_val, strat_cfg$init_eqty, strat_cfg$incl_buynhold)
+  rslts_viz_func = \() bt_viz_func(metrics_val, strat_cfg)
   
   best_worst_viz_func = \(n_trds = 1, as_tbl = FALSE) {
     rm_best_worst_trds = rm_best_worst_trds_func(
@@ -777,8 +775,7 @@ bt_processor <- \(data_tbl,
       trd_tbl = trd_val,
       orig_calcs = calcs_strtgy_val,
       n_trds = n_trds,
-      init_eqty = strat_cfg$init_eqty,
-      incl_dividends = strat_cfg$incl_dividends) 
+      strat_cfg = strat_cfg) 
     
     if (as_tbl) {
       return(rm_best_worst_trds)

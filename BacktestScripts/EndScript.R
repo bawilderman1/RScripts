@@ -1,3 +1,5 @@
+rm(list = ls(envir = .GlobalEnv), envir = .GlobalEnv)
+
 #library(conflicted)
 library(tidyverse)
 library(DBI)
@@ -60,7 +62,7 @@ result <- dbGetQuery(
 
 sourceCpp("C:/Users/bawil/Documents/RScripts/BacktestScripts/ultimate_smoother.cpp")
 
-strat_cfg <- list(
+test_strat_cfg <- list(
   trade_mode = TradeDirection$SHORT,
   entry_timing = TradeTiming$CLOSE,
   exit_timing = TradeTiming$CLOSE,
@@ -69,11 +71,11 @@ strat_cfg <- list(
   incl_dividends = TRUE
 )
 
-strtgy_entry <- \(., strat_cfg) {
+test_strtgy_entry <- \(., strat_cfg) {
   ifelse(.$rn > 1 & (.$oc2 < .$UltimateSmoother & lag(.$oc2) >= lag(.$UltimateSmoother)), 
          1, 0)
 }
-strtgy_exit <- \(., strat_cfg) {
+test_strtgy_exit <- \(., strat_cfg) {
   ifelse(.$rn > 1 & (.$oc2 > .$UltimateSmoother & lag(.$oc2) <= lag(.$UltimateSmoother)), 
          1, 0)
 }
@@ -88,9 +90,9 @@ bt_strtgy <- result |>
   select(dt, open, high, low, close, rn, mth_nbr, dividend, oc2, UltimateSmoother)
 
 bt_metrics <- bt_processor(bt_strtgy,
-                           strtgy_entry,
-                           strtgy_exit,
-                           strat_cfg)
+                           test_strtgy_entry,
+                           test_strtgy_exit,
+                           test_strat_cfg)
 
 bt_metrics$rslts_viz()
 
