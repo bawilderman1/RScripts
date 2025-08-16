@@ -40,3 +40,5 @@ vignettes/*.pdf
 
 # Gemini Context File
 BacktestScripts/GEMINI.md
+BacktestScripts/INPROCESS.md
+BacktestScripts/CHANGELOG.md
