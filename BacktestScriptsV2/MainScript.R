@@ -2,81 +2,13 @@ library(tidyverse)
 library(DBI)
 library(duckdb)
 library(lubridate)
-library(slider)
-library(purrr)
-library(glue)
-library(gt)
 library(Rcpp)
-
-# Get Data
-
-con <- dbConnect(duckdb::duckdb(), dbdir = "C:/Users/bawil/Documents/StockData/Databases/spyanalysis.db", read_only = FALSE)
-
-result <- dbGetQuery(
-  con,
-  "WITH spy_dividend_cte AS (
-  	SELECT 
-  		time_bucket(to_months(1), dt) as dt,
-  		max(dividend) AS dividend,
-  	FROM spy_1d_dividends
-  	where dt >= '1993-02-01'
-  	group by time_bucket(to_months(1), dt)
-  	order by time_bucket(to_months(1), dt)
-  )
-  SELECT m.*, 
-  	hl.* EXCLUDE (dt),
-  	cd.* EXCLUDE (dt),
-  	d.* EXCLUDE (dt),
-  	ga.* EXCLUDE (dt),
-  	sp.* EXCLUDE (dt),
-  	fc.* EXCLUDE (dt),
-  	div.* EXCLUDE(dt),
-  FROM spy_monthly m
-  	LEFT JOIN spy_monthly_highlow hl ON m.dt = hl.dt
-  	LEFT JOIN spy_monthly_consec_dir cd ON m.dt = cd.dt
-  	LEFT JOIN spy_monthly_decycler125 d ON m.dt = d.dt
-  	LEFT JOIN spy_monthly_geomavg5 ga ON m.dt = ga.dt
-  	LEFT JOIN spy_monthly_augenspikes sp ON m.dt = sp.dt
-  	LEFT JOIN spy_monthly_factorcalcs fc ON m.dt = fc.dt
-  	LEFT JOIN spy_dividend_cte div ON m.dt = div.dt
-  ORDER BY m.dt;")
-
-# Backtest Functions
-
-# TODO: Need to map and wrap Enum's from BacktestEngine.cpp into BacktestHandler.cpp with RCPP package
-TradeTiming <- list(
-  OPEN = "open",
-  CLOSE = "close",
-  NEXT_OPEN = "next_open"
-)
-
-# Bactest Setup/Run
-
-sourceCpp("C:/Users/bawil/Documents/RScripts/BacktestScripts/ultimate_smoother.cpp")
-sourceCpp("C:/Users/bawil/Documents/RScripts/BacktestScripts/BacktestEngine.cpp")
-sourceCpp("C:/Users/bawil/Documents/RScripts/BacktestScripts/BacktestHandler.cpp")
-
-# TODO: Need to properly map and wrap Config struct from BacktestEngine.cpp into BacktestHandler.cpp with RCPP package
-strat_cfg <- list(
-  entry_timing = TradeTiming$CLOSE,
-  exit_timing = TradeTiming$CLOSE,
-  init_eqty = 10000,
-  incl_buynhold = TRUE,
-  incl_dividends = TRUE
-)
-
-# TODO: These are the Long_Only Entry and Exit for the strategy to test
-strtgy_entry <- \(.) {
-  ifelse(.$rn > 1 & (.$oc2 > .$UltimateSmoother & lag(.$oc2) <= lag(.$UltimateSmoother)), 
-         1, 0)
-}
-strtgy_exit <- \(.) {
-  ifelse(.$rn > 1 & (.$oc2 < .$UltimateSmoother & lag(.$oc2) >= lag(.$UltimateSmoother)), 
-         1, 0)
-}
-
-# TODO: Need to properly map and wrap run_backtest from BacktestEngine.cpp into BacktestHandler.cpp with RCPP package
-# can use main from BacktestEngine.cpp as an example
-# Would like to get back the resulting data table from the backtest processing and save it to a tibble that I can then call with view()
-
-dbDisconnect(con, shutdown=TRUE)  
+tryCatch({
+    Rcpp::sourceCpp("C:/Users/bawil/Documents/RScripts/BacktestScriptsV2/BacktestHandler.cpp", verbose = TRUE)
+}, error = function(e) {
+    message("Caught an error during C++ compilation:")
+    message(e)
+    stop(e)
+})# =================================================================================# 1. DATA LOADING# =================================================================================# Connect to the databasecon <- dbConnect(duckdb::duckdb(), dbdir = "C:/Users/bawil/Documents/StockData/Databases/spyanalysis.db", read_only = TRUE)# Fetch monthly SPY data# This query is preserved from your original script.monthly_data <- dbGetQuery(  con,  "SELECT m.dt, m.open, m.high, m.low, m.close, d.dividend FROM spy_monthly m LEFT JOIN (SELECT time_bucket(to_months(1), dt) as dt, max(dividend) AS dividend FROM spy_1d_dividends WHERE dt >= '1993-02-01' GROUP BY 1) d ON m.dt = d.dt ORDER BY m.dt;" )# Disconnect from the databasedbDisconnect(con, shutdown=TRUE)# =================================================================================# 2. DATA PREPARATION & SIGNAL GENERATION# =================================================================================# Convert to tibble and ensure dates are handled correctlydata_for_backtest <- as_tibble(monthly_data) %>%  mutate(dt = as.Date(dt)) %>%  # IMPORTANT: The C++ engine cannot handle missing data. Remove any NA rows.  drop_na(open, high, low, close) %>%  # The user's strategy requires 'oc2' and 'UltimateSmoother'. We calculate them here.  mutate(    oc2 = (open + close) / 2,    rn = row_number(),    # ==========================================================================    # !!! PLACEHOLDER WARNING !!!    # The logic for 'UltimateSmoother' was in a separate C++ file.    # You need to replace this placeholder with your actual calculation.    # For this example, I am using a 2-period simple moving average as a stand-in.    UltimateSmoother = slider::slide_dbl(oc2, ~mean(.x), .before = 1, .complete = TRUE),    # ==========================================================================  ) %>%  # Now, create the final signal columns based on the strategy logic.  mutate(    entry_signal = ifelse(rn > 1 & !is.na(UltimateSmoother) & (oc2 > UltimateSmoother & lag(oc2) <= lag(UltimateSmoother)), 1, 0),    exit_signal  = ifelse(rn > 1 & !is.na(UltimateSmoother) & (oc2 < UltimateSmoother & lag(oc2) >= lag(UltimateSmoother)), 1, 0)  )# Prepare the dividend data frame for the C++ enginedividend_df <- data_for_backtest %>%  filter(!is.na(dividend) & dividend > 0) %>%  select(ex_date = dt, dividend_amount = dividend)# =================================================================================# 3. CONFIGURE AND RUN THE BACKTEST# =================================================================================# Compile the C++ backend. This is the only call needed.# The handler will include the engine file itself.sourceCpp("C:/Users/bawil/Documents/RScripts/BacktestScriptsV2/BacktestHandler.cpp")# --- Configuration for a BUY AND HOLD backtest ---# This is a simple test to ensure the pipeline is working.bnh_cfg <- list(  initial_equity = 100000.0,  trade_mode = "BUY_AND_HOLD",  time_frame = "1mo",  entry_timing = "OPEN",  exit_timing = "CLOSE",  slippage_pct = 0.0005,  commission_per_trade = 1.50,  dividend_data = dividend_df)# Run the Buy and Hold backtestcat("--- Running Buy and Hold Backtest ---\n")buy_and_hold_results <- run_backtest_r(data_for_backtest, bnh_cfg)print(head(buy_and_hold_results, 5))cat("\n...\n")print(tail(buy_and_hold_results, 5))
+write.csv(buy_and_hold_results, "bnh_results.csv", row.names = FALSE)# --- Configuration for your custom STRATEGY backtest ---strategy_cfg <- list(  initial_equity = 100000.0,  trade_mode = "LONG",  time_frame = "1mo",  entry_timing = "CLOSE",  exit_timing = "CLOSE",  risk_config = list(    stop_loss_pct = 0.10,      # 10% stop loss    take_profit_pct = 0.25,    # 25% take profit    fractional_sells = data.frame( # Sell 50% at 10% profit      profit_target_pct = c(0.10),      fraction_to_sell  = c(0.50)    )  ),  slippage_pct = 0.0005,  commission_per_trade = 1.50,  dividend_data = dividend_df)# Run the Strategy backtestcat("\n--- Running Custom Strategy Backtest ---\n")strategy_results <- run_backtest_r(data_for_backtest, strategy_cfg)print(head(strategy_results, 5))cat("\n...\n")print(tail(strategy_results, 5))
+write.csv(strategy_results, "strategy_results.csv", row.names = FALSE)

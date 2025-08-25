@@ -1,4 +1,4 @@
-#include "C:/Users/bawil/Documents/RScripts/BacktestScripts/ultimate_smoother.h"
+#include "ultimate_smoother.h"
 #include <cmath>
 #include <vector>
 
@@ -40,4 +40,23 @@ Rcpp::DataFrame ultimateSmootherTbl(const Rcpp::NumericVector& price, int period
     return Rcpp::DataFrame::create(
         Rcpp::Named("UltimateSmoother") = smoother_values
     );
+}
+
+
+// [[Rcpp::export]]
+Rcpp::NumericVector calculateSuperSmoother(const Rcpp::NumericVector& price, int period) {
+    int n = price.size();
+    Rcpp::NumericVector result(n);
+
+    double a1 = std::exp(-1.414 * M_PI / (0.5 * period));
+    double b1 = 2 * a1 * std::cos(1.414 * M_PI / (0.5 * period));
+    double c2 = b1;
+    double c3 = -a1 * a1;
+    double c1 = 1 - c2 - c3;
+
+    for (int i = 2; i < n; ++i) {
+        result[i] = c1 * (price[i] + price[i - 1]) / 2 + c2 * result[i - 1] + c3 * result[i - 2];
+    }
+
+    return result;
 }
