@@ -68,6 +68,12 @@ struct BarData {
 // FUNCTION DECLARATIONS
 // =================================================================================
 
+void process_entry(const std::string& direction, size_t i, const std::vector<OHLC>& ohlc_data, const Config& config, BarData& current_bar, int& trade_count, double& entry_price, double& peak_trade_equity, double& trough_trade_equity, std::map<int, bool>& fractional_sells_triggered);
+void process_full_exit(const std::string& direction, const Config& config, BarData& current_bar, BarData& prev_bar, double& entry_price, double base_exit_price);
+void process_partial_exit(const std::string& direction, const Config& config, double base_exit_price, double fraction, BarData& current_bar, double& entry_price);
+double get_price(const OHLC& bar, TimingOption timing, const std::vector<OHLC>& ohlc_data, size_t current_index);
+double get_price_with_slippage(double price, const std::string& direction, const Config& config);
+
 std::vector<BarData> run_backtest(const std::vector<OHLC>& ohlc_data, Config config);
 
 #endif // BACKTEST_ENGINE_H
