@@ -13,7 +13,14 @@ Rcpp::sourceCpp("C:/Users/bawil/Documents/RScripts/BacktestScriptsV2/BacktestHan
 con <- dbConnect(duckdb::duckdb(), dbdir = "C:/Users/bawil/Documents/StockData/Databases/spyanalysis.db", read_only = TRUE)
 monthly_data <- dbGetQuery(
   con,
-  "SELECT m.dt, m.open, m.high, m.low, m.close, d.dividend FROM spy_monthly m LEFT JOIN (SELECT time_bucket(to_months(1), dt) as dt, max(dividend) AS dividend FROM spy_1d_dividends WHERE dt >= '1993-02-01' GROUP BY 1) d ON m.dt = d.dt ORDER BY m.dt;"
+  "SELECT
+    m.dt, m.open, m.high, m.low, m.close, d.dividend
+   FROM spy_monthly m
+   LEFT JOIN (SELECT
+                time_bucket(to_months(1), dt) as dt, max(dividend) AS dividend 
+              FROM spy_1d_dividends
+              WHERE dt >= '1993-02-01' GROUP BY 1) d ON m.dt = d.dt
+   ORDER BY m.dt;"
 )
 dbDisconnect(con, shutdown=TRUE)
 

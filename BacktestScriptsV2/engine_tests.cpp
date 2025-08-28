@@ -155,3 +155,46 @@ TEST_CASE("run_backtest integration test", "[run_backtest]") {
     REQUIRE(results.back().trade_number == 1);
     REQUIRE(results.back().position_state == "flat");
 }
+
+TEST_CASE("Interaction bug: Simultaneous full exit and partial exit", "[run_backtest][bug]") {
+    // This test creates a scenario where a single bar's high price triggers
+    // both a fractional sell and a full take-profit to test their interaction.
+    std::vector<OHLC> ohlc_data = {
+        {100.0, 100.0, 100.0, 100.0, 0}, // Bar 0: Flat
+        {100.0, 100.0, 100.0, 100.0, 1}, // Bar 1: Enter at 100.0
+        {100.0, 111.0, 100.0, 110.0, 2}  // Bar 2: High of 111 should trigger both exits
+    };
+
+    Config config;
+    config.initial_equity = 10000.0;
+    config.trade_mode = TradeMode::LONG;
+    config.entry_timing = TimingOption::CLOSE;
+    config.exit_timing = TimingOption::CLOSE;
+    config.commission_per_trade = 0.0; // Simplify calcs
+    config.slippage_pct = 0.0;         // Simplify calcs
+
+    // Entry signal
+    config.long_entry = [](const OHLC&, const std::vector<OHLC>&, size_t i) {
+        return i == 1;
+    };
+
+    // No signal-based exit
+    config.long_exit = [](const OHLC&, const std::vector<OHLC>&, size_t i) {
+        return false;
+    };
+
+    // Risk management that should trigger simultaneously
+    config.risk_config.take_profit_pct = 0.10; // Full exit at 10% profit (price >= 110)
+    config.risk_config.fractional_sells.push_back({0.05, 0.5}); // Partial exit of 50% at 5% profit (price >= 105)
+
+    // This call is expected to crash if the bug is present
+    std::vector<BarData> results = run_backtest(ohlc_data, config);
+
+    // If it doesn't crash, we can assert the final state.
+    // The full exit should take precedence.
+    // Entry: 10000 / 100 = 100 shares.
+    // Exit: Take-profit is at 110. Proceeds = 100 * 110 = 11000.
+    REQUIRE(results.back().equity == Approx(11000.0));
+    REQUIRE(results.back().position_state == "flat");
+    REQUIRE(results.back().share_quantity == 0);
+}

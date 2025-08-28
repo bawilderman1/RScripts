@@ -24,9 +24,12 @@ struct FractionalSellRule {
 };
 
 struct RiskManagementConfig {
-    double stop_loss_pct = 0.0;
-    double take_profit_pct = 0.0;
+    double stop_loss_pct;
+    double take_profit_pct;
     std::vector<FractionalSellRule> fractional_sells;
+
+    // Default constructor to ensure proper initialization
+    RiskManagementConfig() : stop_loss_pct(0.0), take_profit_pct(0.0) {}
 };
 
 enum class TradeMode { LONG, SHORT, LONG_SHORT, BUY_AND_HOLD };
