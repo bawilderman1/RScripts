@@ -108,22 +108,50 @@ std::vector<BarData> run_backtest(const std::vector<OHLC>& ohlc_data, Config con
                 process_full_exit("long", config, current_bar, prev_bar, entry_price, base_exit_price);
                 position_exited_this_bar = true;
             }
+        } else if (current_bar.position_state == "short") {
+            // Stop Loss for short
+            if (config.risk_config.stop_loss_pct > 0.0) {
+                double stop_price = entry_price * (1.0 + config.risk_config.stop_loss_pct);
+                if (bar.high >= stop_price) {
+                    process_full_exit("short", config, current_bar, prev_bar, entry_price, stop_price);
+                    position_exited_this_bar = true;
+                }
+            }
+            // Take Profit for short
+            if (!position_exited_this_bar && config.risk_config.take_profit_pct > 0.0) {
+                double take_profit_price = entry_price * (1.0 - config.risk_config.take_profit_pct);
+                if (bar.low <= take_profit_price) {
+                    process_full_exit("short", config, current_bar, prev_bar, entry_price, take_profit_price);
+                    position_exited_this_bar = true;
+                }
+            }
+            // Signal Exit for short
+            if (!position_exited_this_bar && config.short_exit && config.short_exit(bar, ohlc_data, i)) {
+                process_full_exit("short", config, current_bar, prev_bar, entry_price, get_price(bar, config.exit_timing, ohlc_data, i));
+                position_exited_this_bar = true;
+            }
         }
 
         // --- 3. PROCESS ENTRIES IF POSITION IS FLAT ---
         if (current_bar.position_state == "flat" && !position_exited_this_bar) {
             bool is_bnh_entry = (config.trade_mode == TradeMode::BUY_AND_HOLD && i == 0);
-            bool is_signal_entry = (config.trade_mode == TradeMode::LONG || config.trade_mode == TradeMode::LONG_SHORT) && config.long_entry && config.long_entry(bar, ohlc_data, i);
+            bool is_long_signal_entry = (config.trade_mode == TradeMode::LONG || config.trade_mode == TradeMode::LONG_SHORT) && config.long_entry && config.long_entry(bar, ohlc_data, i);
+            bool is_short_signal_entry = (config.trade_mode == TradeMode::SHORT || config.trade_mode == TradeMode::LONG_SHORT) && config.short_entry && config.short_entry(bar, ohlc_data, i);
 
-            if (is_bnh_entry || is_signal_entry) {
+            if (is_bnh_entry || is_long_signal_entry) {
                 process_entry("long", i, ohlc_data, config, current_bar, trade_count, entry_price, peak_trade_equity, trough_trade_equity, fractional_sells_triggered);
+            } else if (is_short_signal_entry) {
+                process_entry("short", i, ohlc_data, config, current_bar, trade_count, entry_price, peak_trade_equity, trough_trade_equity, fractional_sells_triggered);
             }
         }
 
         // --- 4. UPDATE ONGOING METRICS FOR THE BAR ---
         if (current_bar.position_state == "long") {
             current_bar.ongoing_pnl = (bar.close - entry_price) * current_bar.share_quantity;
-            current_bar.equity = current_bar.cash + current_bar.realized_pnl + (bar.close * current_bar.share_quantity);
+            current_bar.equity = current_bar.cash + (bar.close * current_bar.share_quantity);
+        } else if (current_bar.position_state == "short") {
+            current_bar.ongoing_pnl = (entry_price - bar.close) * current_bar.share_quantity;
+            current_bar.equity = current_bar.cash - (bar.close * current_bar.share_quantity);
         } else {
             current_bar.equity = current_bar.cash;
             current_bar.ongoing_pnl = 0;
@@ -170,6 +198,17 @@ void process_entry(const std::string& direction, size_t i, const std::vector<OHL
         current_bar.cash -= (cost + config.commission_per_trade);
         current_bar.position_state = "long";
         entry_price = base_price;
+    } else if (direction == "short") {
+        double execution_price = get_price_with_slippage(base_price, "sell", config);
+        // In a real scenario, this would be based on margin, but for simplicity, we'll allow shorting up to the current equity value.
+        double short_value = current_bar.equity;
+        if (short_value <= 0) return;
+        current_bar.share_quantity = static_cast<int>(short_value / execution_price);
+        if (current_bar.share_quantity == 0) return;
+        double proceeds = current_bar.share_quantity * execution_price;
+        current_bar.cash += (proceeds - config.commission_per_trade);
+        current_bar.position_state = "short";
+        entry_price = base_price;
     }
 
     trade_count++;
@@ -184,12 +223,16 @@ void process_full_exit(const std::string& direction, const Config& config, BarDa
         double execution_price = get_price_with_slippage(base_exit_price, "sell", config);
         double proceeds = (current_bar.share_quantity * execution_price);
         current_bar.cash += (proceeds - config.commission_per_trade);
-        current_bar.equity = current_bar.cash + current_bar.realized_pnl;
-        if (prev_bar.equity != 0) {
-            current_bar.pnl_log_change_pct = log(current_bar.equity / prev_bar.equity);
-        }
+    } else if (direction == "short") {
+        double execution_price = get_price_with_slippage(base_exit_price, "buy", config);
+        double cost_to_cover = (current_bar.share_quantity * execution_price);
+        current_bar.cash -= (cost_to_cover + config.commission_per_trade);
     }
 
+    current_bar.equity = current_bar.cash; // After exit, equity is just cash
+    if (prev_bar.equity != 0) {
+         current_bar.pnl_log_change_pct = log(current_bar.equity / prev_bar.equity);
+    }
     current_bar.share_quantity = 0;
     current_bar.position_state = "flat";
     entry_price = 0.0;

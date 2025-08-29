@@ -29,6 +29,41 @@ bool hasColumn(const Rcpp::DataFrame& df, const std::string& colName) {
 // MAIN EXPORTED FUNCTION
 // =================================================================================
 
+struct SignalVectors {
+    Rcpp::IntegerVector long_entry;
+    Rcpp::IntegerVector long_exit;
+    Rcpp::IntegerVector short_entry;
+    Rcpp::IntegerVector short_exit;
+};
+
+// Helper to resolve a single pair of signals (entry/exit)
+std::pair<Rcpp::IntegerVector, Rcpp::IntegerVector> resolve_signal_pair(const Rcpp::List& config_list, const Rcpp::DataFrame& ohlc_df, const std::string& entry_name, const std::string& exit_name) {
+    Rcpp::IntegerVector entry_vec;
+    Rcpp::IntegerVector exit_vec;
+
+    std::string col_entry_name = entry_name + "_signal";
+    std::string col_exit_name = exit_name + "_signal";
+
+    if (config_list.containsElementNamed(entry_name.c_str()) && Rf_isFunction(config_list[entry_name.c_str()])) {
+        if (!config_list.containsElementNamed(exit_name.c_str()) || !Rf_isFunction(config_list[exit_name.c_str()])) {
+            Rcpp::stop("If '" + entry_name + "' is a function, '" + exit_name + "' must also be a function.");
+        }
+        Rcpp::Function entry_func = config_list[entry_name.c_str()];
+        Rcpp::Function exit_func = config_list[exit_name.c_str()];
+        entry_vec = Rcpp::as<Rcpp::IntegerVector>(Rcpp::LogicalVector(entry_func(ohlc_df)));
+        exit_vec = Rcpp::as<Rcpp::IntegerVector>(Rcpp::LogicalVector(exit_func(ohlc_df)));
+    } else if (hasColumn(ohlc_df, col_entry_name) && hasColumn(ohlc_df, col_exit_name)) {
+        entry_vec = ohlc_df[col_entry_name];
+        exit_vec = ohlc_df[col_exit_name];
+    }
+    return std::make_pair(entry_vec, exit_vec);
+}
+
+
+// =================================================================================
+// MAIN EXPORTED FUNCTION
+// =================================================================================
+
 // [[Rcpp::export]]
 Rcpp::DataFrame run_backtest_r(Rcpp::DataFrame ohlc_df, Rcpp::List config_list) {
     // --- 1. POPULATE THE C++ CONFIG STRUCT ---
@@ -80,25 +115,33 @@ Rcpp::DataFrame run_backtest_r(Rcpp::DataFrame ohlc_df, Rcpp::List config_list) 
     }
 
     // --- 3. CREATE AND ASSIGN SIGNAL FUNCTIONS ---
-    if (config.trade_mode == TradeMode::LONG || config.trade_mode == TradeMode::LONG_SHORT) {
-        if (!hasColumn(ohlc_df, "entry_signal") || !hasColumn(ohlc_df, "exit_signal")) {
-            Rcpp::stop("For LONG or LONG_SHORT mode, ohlc_df must contain 'entry_signal' and 'exit_signal' columns.");
-        }
-        Rcpp::IntegerVector entry_vec = ohlc_df["entry_signal"];
-        Rcpp::IntegerVector exit_vec = ohlc_df["exit_signal"];
-        config.long_entry = [entry_vec](const OHLC&, const auto&, size_t i) { return entry_vec(i) == 1; };
-        config.long_exit = [exit_vec](const OHLC&, const auto&, size_t i) { return exit_vec(i) == 1; };
-        
-        // For now, short signals are not implemented from R
-        config.short_entry = nullptr;
-        config.short_exit = nullptr;
+    config.long_entry = nullptr;
+    config.long_exit = nullptr;
+    config.short_entry = nullptr;
+    config.short_exit = nullptr;
 
-    } else {
-        // For BUY_AND_HOLD or other modes, ensure all functions are null
-        config.long_entry = nullptr;
-        config.long_exit = nullptr;
-        config.short_entry = nullptr;
-        config.short_exit = nullptr;
+    if (config.trade_mode == TradeMode::LONG || config.trade_mode == TradeMode::LONG_SHORT) {
+        auto long_signals = resolve_signal_pair(config_list, ohlc_df, "long_entry", "long_exit");
+        if (long_signals.first.size() > 0) { // Check if signals were found
+            config.long_entry = [vec = long_signals.first](const OHLC&, const auto&, size_t i) { return vec[i] == 1; };
+            config.long_exit = [vec = long_signals.second](const OHLC&, const auto&, size_t i) { return vec[i] == 1; };
+        } else if (config.trade_mode == TradeMode::LONG) {
+             Rcpp::stop("For LONG mode, valid signals must be provided (functions or columns).");
+        }
+    }
+
+    if (config.trade_mode == TradeMode::SHORT || config.trade_mode == TradeMode::LONG_SHORT) {
+        auto short_signals = resolve_signal_pair(config_list, ohlc_df, "short_entry", "short_exit");
+        if (short_signals.first.size() > 0) { // Check if signals were found
+            config.short_entry = [vec = short_signals.first](const OHLC&, const auto&, size_t i) { return vec[i] == 1; };
+            config.short_exit = [vec = short_signals.second](const OHLC&, const auto&, size_t i) { return vec[i] == 1; };
+        } else if (config.trade_mode == TradeMode::SHORT) {
+             Rcpp::stop("For SHORT mode, valid signals must be provided (functions or columns).");
+        }
+    }
+    
+    if (config.trade_mode == TradeMode::LONG_SHORT && !config.long_entry && !config.short_entry) {
+        Rcpp::stop("For LONG_SHORT mode, at least one set of valid signals (long or short) must be provided.");
     }
 
     // --- 4. RUN THE BACKTEST ---
