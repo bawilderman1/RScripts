@@ -27,17 +27,9 @@ std::vector<BarData> run_backtest(const std::vector<OHLC>& ohlc_data, Config con
         return results;
     }
 
-    // --- Handle Buy-and-Hold Mode ---
-    // If the mode is Buy and Hold, we override the signal functions to create a single
-    // trade that spans the entire dataset. This is cleaner than a separate code path.
-    if (config.trade_mode == TradeMode::BUY_AND_HOLD) {
-        config.long_entry = [&](const OHLC&, const std::vector<OHLC>&, size_t i) {
-            return i == 0; // Entry signal on the very first bar
-        };
-        config.long_exit = [&](const OHLC&, const std::vector<OHLC>&, size_t i) {
-            return i == ohlc_data.size() - 1; // Exit signal on the very last bar
-        };
-    }
+    
+
+    
 
     BarData initial_bar;
     initial_bar.equity = config.initial_equity;
@@ -108,7 +100,10 @@ std::vector<BarData> run_backtest(const std::vector<OHLC>& ohlc_data, Config con
                     }
                 }
             }
-            if (!position_exited_this_bar && config.long_exit && config.long_exit(bar, ohlc_data, i)) {
+            bool is_bnh_exit = (config.trade_mode == TradeMode::BUY_AND_HOLD && i == ohlc_data.size() - 1);
+            bool is_signal_exit = config.long_exit && config.long_exit(bar, ohlc_data, i);
+
+            if (!position_exited_this_bar && (is_bnh_exit || is_signal_exit)) {
                 double base_exit_price = get_price(bar, config.exit_timing, ohlc_data, i);
                 process_full_exit("long", config, current_bar, prev_bar, entry_price, base_exit_price);
                 position_exited_this_bar = true;
@@ -117,7 +112,10 @@ std::vector<BarData> run_backtest(const std::vector<OHLC>& ohlc_data, Config con
 
         // --- 3. PROCESS ENTRIES IF POSITION IS FLAT ---
         if (current_bar.position_state == "flat" && !position_exited_this_bar) {
-            if ((config.trade_mode == TradeMode::LONG || config.trade_mode == TradeMode::LONG_SHORT || config.trade_mode == TradeMode::BUY_AND_HOLD) && config.long_entry && config.long_entry(bar, ohlc_data, i)) {
+            bool is_bnh_entry = (config.trade_mode == TradeMode::BUY_AND_HOLD && i == 0);
+            bool is_signal_entry = (config.trade_mode == TradeMode::LONG || config.trade_mode == TradeMode::LONG_SHORT) && config.long_entry && config.long_entry(bar, ohlc_data, i);
+
+            if (is_bnh_entry || is_signal_entry) {
                 process_entry("long", i, ohlc_data, config, current_bar, trade_count, entry_price, peak_trade_equity, trough_trade_equity, fractional_sells_triggered);
             }
         }

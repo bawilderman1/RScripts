@@ -198,3 +198,92 @@ TEST_CASE("Interaction bug: Simultaneous full exit and partial exit", "[run_back
     REQUIRE(results.back().position_state == "flat");
     REQUIRE(results.back().share_quantity == 0);
 }
+
+TEST_CASE("Engine returns a vector of results", "[run_backtest][core]") {
+    std::vector<OHLC> ohlc_data = {
+        {100.0, 100.0, 100.0, 100.0, 0},
+        {100.0, 100.0, 100.0, 100.0, 1}
+    };
+    Config config;
+    config.initial_equity = 10000.0;
+    config.trade_mode = TradeMode::BUY_AND_HOLD; // Easiest mode to test
+
+    std::vector<BarData> results = run_backtest(ohlc_data, config);
+
+    // The engine adds an initial bar for starting equity, so size should be data size + 1.
+    REQUIRE(results.size() == ohlc_data.size() + 1);
+}
+
+auto dummy_entry = [](const OHLC&, const std::vector<OHLC>&, size_t i) { return i == 0; };
+
+TEST_CASE("Engine handles nullptr for long_exit", "[run_backtest][core]") {
+    std::vector<OHLC> ohlc_data = {{100.0, 100.0, 100.0, 100.0, 0}};
+    Config config;
+    config.initial_equity = 10000.0;
+    config.trade_mode = TradeMode::LONG;
+    config.long_entry = dummy_entry;
+    config.long_exit = nullptr; // Explicitly set to nullptr
+
+    // This should not crash
+    run_backtest(ohlc_data, config);
+
+    // We just need to ensure it ran without crashing, so we add a trivial assertion.
+    REQUIRE(true);
+}
+
+auto dummy_exit = [](const OHLC&, const std::vector<OHLC>&, size_t i) { return i == 1; };
+
+TEST_CASE("Engine handles nullptr for long_entry", "[run_backtest][core]") {
+    std::vector<OHLC> ohlc_data = {{100.0, 100.0, 100.0, 100.0, 0}};
+    Config config;
+    config.initial_equity = 10000.0;
+    config.trade_mode = TradeMode::LONG;
+    config.long_entry = nullptr;
+    config.long_exit = dummy_exit;
+    run_backtest(ohlc_data, config);
+    REQUIRE(true); // Did not crash
+}
+
+TEST_CASE("Engine handles nullptr for short_entry", "[run_backtest][core]") {
+    std::vector<OHLC> ohlc_data = {{100.0, 100.0, 100.0, 100.0, 0}};
+    Config config;
+    config.initial_equity = 10000.0;
+    config.trade_mode = TradeMode::SHORT;
+    config.short_entry = nullptr;
+    config.short_exit = dummy_exit;
+    run_backtest(ohlc_data, config);
+    REQUIRE(true); // Did not crash
+}
+
+TEST_CASE("Engine handles nullptr for short_exit", "[run_backtest][core]") {
+    std::vector<OHLC> ohlc_data = {{100.0, 100.0, 100.0, 100.0, 0}};
+    Config config;
+    config.initial_equity = 10000.0;
+    config.trade_mode = TradeMode::SHORT;
+    config.short_entry = dummy_entry;
+    config.short_exit = nullptr;
+    run_backtest(ohlc_data, config);
+    REQUIRE(true); // Did not crash
+}
+
+TEST_CASE("Engine executes BUY_AND_HOLD correctly", "[run_backtest][bnh]") {
+    std::vector<OHLC> ohlc_data = {
+        {100.0, 100.0, 100.0, 100.0, 0}, // Bar 0
+        {110.0, 110.0, 110.0, 110.0, 1}  // Bar 1
+    };
+    Config config;
+    config.initial_equity = 10000.0;
+    config.trade_mode = TradeMode::BUY_AND_HOLD;
+    config.entry_timing = TimingOption::CLOSE;
+    config.exit_timing = TimingOption::CLOSE;
+    config.long_entry = nullptr;
+    config.long_exit = nullptr;
+
+    std::vector<BarData> results = run_backtest(ohlc_data, config);
+
+    // Should buy at 100 on bar 0 and sell at 110 on bar 1.
+    // Entry: 10000 / 100 = 100 shares.
+    // Exit: 100 * 110 = 11000.
+    REQUIRE(results.back().equity == Approx(11000.0));
+    REQUIRE(results.back().trade_number == 1);
+}

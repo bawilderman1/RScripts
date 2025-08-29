@@ -88,9 +88,18 @@ Rcpp::DataFrame run_backtest_r(Rcpp::DataFrame ohlc_df, Rcpp::List config_list) 
         Rcpp::IntegerVector exit_vec = ohlc_df["exit_signal"];
         config.long_entry = [entry_vec](const OHLC&, const auto&, size_t i) { return entry_vec(i) == 1; };
         config.long_exit = [exit_vec](const OHLC&, const auto&, size_t i) { return exit_vec(i) == 1; };
+        
+        // For now, short signals are not implemented from R
+        config.short_entry = nullptr;
+        config.short_exit = nullptr;
+
+    } else {
+        // For BUY_AND_HOLD or other modes, ensure all functions are null
+        config.long_entry = nullptr;
+        config.long_exit = nullptr;
+        config.short_entry = nullptr;
+        config.short_exit = nullptr;
     }
-    config.short_entry = nullptr;
-    config.short_exit = nullptr;
 
     // --- 4. RUN THE BACKTEST ---
     std::vector<BarData> results = run_backtest(ohlc_data, config);
@@ -103,7 +112,7 @@ Rcpp::DataFrame run_backtest_r(Rcpp::DataFrame ohlc_df, Rcpp::List config_list) 
                           pnl_log_change_pct_out, equity_drawdown_out, equity_drawup_out, 
                           trade_drawdown_out, trade_drawup_out;
 
-    if (results.size() == dates.size() + 1) {
+    if (static_cast<R_xlen_t>(results.size()) == dates.size() + 1) {
         for (size_t i = 1; i < results.size(); ++i) {
             const auto& bar = results[i];
             dt_out.push_back(dates(i-1));

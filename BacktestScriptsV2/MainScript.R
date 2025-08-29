@@ -25,10 +25,26 @@ monthly_data <- dbGetQuery(
 dbDisconnect(con, shutdown=TRUE)
 
 # =================================================================================
-# 2. DATA PREPARATION & SIGNAL GENERATION (SIMPLIFIED)
+# 2. DATA PREPARATION & SIGNAL GENERATION
 # =================================================================================
+sourceCpp("C:/Users/bawil/Documents/RScripts/BacktestScripts/ultimate_smoother.cpp")
+
+# Not sure how to handle the functions for strategy entry/exit now. It used to be a function 
+# provided to the config 
+strtgy_entry <- \(.) {
+  ifelse(.$rn > 1 & (.$oc2 > .$UltimateSmoother & lag(.$oc2) <= lag(.$UltimateSmoother)), 
+         1, 0)
+}
+strtgy_exit <- \(.) {
+  ifelse(.$rn > 1 & (.$oc2 < .$UltimateSmoother & lag(.$oc2) >= lag(.$UltimateSmoother)), 
+         1, 0)
+}
+
 data_for_backtest <- as_tibble(monthly_data) %>%
-  mutate(dt = as.Date(dt)) %>%
+  mutate(dt = as.Date(dt),
+         rn = row_number(),
+         oc2 = (open + close) / 2,
+         ultimateSmootherTbl(oc2, 10, 1)) %>%
   drop_na(open, high, low, close) %>%
   mutate(
     # Using simple row number for signals, avoiding ultimate_smoother
