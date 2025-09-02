@@ -149,11 +149,12 @@ Rcpp::DataFrame run_backtest_r(Rcpp::DataFrame ohlc_df, Rcpp::List config_list) 
 
     // --- 5. CONVERT RESULTS BACK TO R DATAFRAME ---
     Rcpp::DateVector dt_out;
-    Rcpp::IntegerVector trade_number_out, share_quantity_out;
+    Rcpp::NumericVector share_quantity_out;
     Rcpp::CharacterVector position_state_out;
     Rcpp::NumericVector equity_out, cash_out, ongoing_pnl_out, realized_pnl_out, 
                           pnl_log_change_pct_out, equity_drawdown_out, equity_drawup_out, 
                           trade_drawdown_out, trade_drawup_out;
+    Rcpp::IntegerVector trade_number_out;
 
     if (static_cast<R_xlen_t>(results.size()) == dates.size() + 1) {
         for (size_t i = 1; i < results.size(); ++i) {
@@ -173,6 +174,10 @@ Rcpp::DataFrame run_backtest_r(Rcpp::DataFrame ohlc_df, Rcpp::List config_list) 
             trade_drawup_out.push_back(bar.trade_drawup);
         }
     }
+
+    dt_out.attr("class") = "Date";
+
+    dt_out.attr("class") = "Date";
 
     return Rcpp::DataFrame::create(
         Rcpp::Named("dt") = dt_out,

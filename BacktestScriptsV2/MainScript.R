@@ -27,30 +27,18 @@ dbDisconnect(con, shutdown=TRUE)
 # =================================================================================
 # 2. DATA PREPARATION & SIGNAL GENERATION
 # =================================================================================
-sourceCpp("C:/Users/bawil/Documents/RScripts/BacktestScripts/ultimate_smoother.cpp")
+sourceCpp("C:/Users/bawil/Documents/RScripts/BacktestScriptsV2/ultimate_smoother.cpp")
 
-# Not sure how to handle the functions for strategy entry/exit now. It used to be a function 
-# provided to the config 
-strtgy_entry <- \(.) {
-  ifelse(.$rn > 1 & (.$oc2 > .$UltimateSmoother & lag(.$oc2) <= lag(.$UltimateSmoother)), 
-         1, 0)
-}
-strtgy_exit <- \(.) {
-  ifelse(.$rn > 1 & (.$oc2 < .$UltimateSmoother & lag(.$oc2) >= lag(.$UltimateSmoother)), 
-         1, 0)
-}
-
-data_for_backtest <- as_tibble(monthly_data) %>%
+data_with_smoother <- as_tibble(monthly_data) %>%
   mutate(dt = as.Date(dt),
          rn = row_number(),
-         oc2 = (open + close) / 2,
-         ultimateSmootherTbl(oc2, 10, 1)) %>%
-  drop_na(open, high, low, close) %>%
-  mutate(
-    # Using simple row number for signals, avoiding ultimate_smoother
-    entry_signal = ifelse(row_number() == 20, 1, 0),
-    exit_signal = ifelse(row_number() == 30, 1, 0)
-  )
+         oc2 = (open + close) / 2) %>%
+  bind_cols(ultimateSmootherTbl(.$oc2, 10, 1))
+
+data_for_backtest <- data_with_smoother %>%
+  filter(dt >= as.Date('2000-01-01')) %>%
+  drop_na(UltimateSmoother)
+
 
 # Prepare dividend data for the config
 dividend_df <- data_for_backtest %>%
@@ -61,7 +49,7 @@ dividend_df <- data_for_backtest %>%
 # 3. BACKTEST EXECUTION
 # =================================================================================
 
-# --- Configuration for the simplified strategy backtest ---
+# --- Configuration for the Ultimate Smoother strategy ---
 strategy_cfg <- list(
   initial_equity = 100000.0,
   trade_mode = "LONG",
@@ -70,14 +58,26 @@ strategy_cfg <- list(
   exit_timing = "CLOSE",
   slippage_pct = 0.0005,
   commission_per_trade = 1.50,
-  dividend_data = dividend_df
+  dividend_data = dividend_df,
+  long_entry = function(df) {
+    df %>%
+      mutate(signal = ifelse(rn > 1 & (oc2 > UltimateSmoother & lag(oc2) <= lag(UltimateSmoother)), 1, 0)) %>%
+      pull(signal)
+  },
+  long_exit = function(df) {
+    df %>%
+      mutate(signal = ifelse(rn > 1 & (oc2 < UltimateSmoother & lag(oc2) >= lag(UltimateSmoother)), 1, 0)) %>%
+      pull(signal)
+  }
 )
 
 # --- Run the Strategy backtest ---
-cat("\n--- Running Simplified Strategy Backtest ---\n")
+cat("\n--- Running Ultimate Smoother Strategy Backtest ---
+")
 strategy_results <- run_backtest_r(data_for_backtest, strategy_cfg)
 
 # --- Print results ---
 print(head(strategy_results, 25))
 cat("\n...\n")
 print(tail(strategy_results, 25))
+

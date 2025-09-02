@@ -9,6 +9,11 @@
 #include <iomanip>
 #include <map>
 
+// Helper function for rounding
+double round_to(double value, int decimal_places) {
+    const double multiplier = std::pow(10.0, decimal_places);
+    return std::round(value * multiplier) / multiplier;
+}
 
 
 // =================================================================================
@@ -27,17 +32,14 @@ std::vector<BarData> run_backtest(const std::vector<OHLC>& ohlc_data, Config con
         return results;
     }
 
-    
-
-    
-
     BarData initial_bar;
-    initial_bar.equity = config.initial_equity;
-    initial_bar.cash = config.initial_equity;
+    initial_bar.equity = round_to(config.initial_equity, 2);
+    initial_bar.cash = round_to(config.initial_equity, 2);
     results.push_back(initial_bar);
 
     int trade_count = 0;
     double entry_price = 0.0;
+    double cost_basis = 0.0;
     double peak_equity = config.initial_equity;
     double trough_equity = config.initial_equity;
     double peak_trade_equity = 0.0;
@@ -50,24 +52,30 @@ std::vector<BarData> run_backtest(const std::vector<OHLC>& ohlc_data, Config con
         const OHLC& bar = ohlc_data[i];
         bool position_exited_this_bar = false;
 
-        // --- 1. PROCESS POINT-IN-TIME EVENTS (DIVIDENDS) ---
-        if (!config.dividend_data.empty() && current_bar.position_state == "long") {
-            if (config.time_frame == "1d") {
-                auto it = config.dividend_data.find(bar.timestamp);
-                if (it != config.dividend_data.end()) {
-                    current_bar.cash += (it->second * current_bar.share_quantity);
-                }
-            } else {
-                long long bar_start_time = bar.timestamp;
-                long long bar_end_time = (i + 1 < ohlc_data.size()) ? ohlc_data[i+1].timestamp : 9999999999LL;
-                double total_dividends_for_bar = 0.0;
-                auto it = config.dividend_data.lower_bound(bar_start_time);
-                while (it != config.dividend_data.end() && it->first < bar_end_time) {
-                    total_dividends_for_bar += it->second;
-                    ++it;
-                }
-                if (total_dividends_for_bar > 0.0) {
-                    current_bar.cash += (total_dividends_for_bar * current_bar.share_quantity);
+        // --- 1. PROCESS DIVIDENDS ---
+        if (!config.dividend_data.empty()) {
+            long long bar_start_time = bar.timestamp;
+            long long bar_end_time = (i + 1 < ohlc_data.size()) ? ohlc_data[i+1].timestamp : 9999999999LL;
+            double total_dividends_for_bar = 0.0;
+            auto it = config.dividend_data.lower_bound(bar_start_time);
+            while (it != config.dividend_data.end() && it->first < bar_end_time) {
+                total_dividends_for_bar += it->second;
+                ++it;
+            }
+
+            if (total_dividends_for_bar > 0.0) {
+                double dividend_cash = total_dividends_for_bar * current_bar.share_quantity;
+                if (current_bar.position_state == "long") {
+                    // Reinvest dividend
+                    double reinvest_price = get_price(bar, TimingOption::CLOSE, ohlc_data, i);
+                    if (reinvest_price > 0) {
+                        double shares_to_buy = dividend_cash / reinvest_price;
+                        current_bar.share_quantity += shares_to_buy;
+                        // Cost basis update is tricky here. For simplicity, we assume the new shares have a cost basis equal to their purchase price.
+                        // A more advanced implementation would track lots.
+                    }
+                } else if (current_bar.position_state == "short") {
+                    current_bar.cash -= dividend_cash;
                 }
             }
         }
@@ -77,14 +85,14 @@ std::vector<BarData> run_backtest(const std::vector<OHLC>& ohlc_data, Config con
             if (config.risk_config.stop_loss_pct > 0.0) {
                 double stop_price = entry_price * (1.0 - config.risk_config.stop_loss_pct);
                 if (bar.low <= stop_price) {
-                    process_full_exit("long", config, current_bar, prev_bar, entry_price, stop_price);
+                    process_full_exit("long", config, current_bar, prev_bar, entry_price, cost_basis, stop_price);
                     position_exited_this_bar = true;
                 }
             }
             if (!position_exited_this_bar && config.risk_config.take_profit_pct > 0.0) {
                 double take_profit_price = entry_price * (1.0 + config.risk_config.take_profit_pct);
                 if (bar.high >= take_profit_price) {
-                    process_full_exit("long", config, current_bar, prev_bar, entry_price, take_profit_price);
+                    process_full_exit("long", config, current_bar, prev_bar, entry_price, cost_basis, take_profit_price);
                     position_exited_this_bar = true;
                 }
             }
@@ -94,7 +102,7 @@ std::vector<BarData> run_backtest(const std::vector<OHLC>& ohlc_data, Config con
                     if (!fractional_sells_triggered[j]) {
                         double partial_profit_price = entry_price * (1.0 + rule.profit_target_pct);
                         if (bar.high >= partial_profit_price) {
-                            process_partial_exit("long", config, partial_profit_price, rule.fraction_to_sell, current_bar, entry_price);
+                            process_partial_exit("long", config, partial_profit_price, rule.fraction_to_sell, current_bar, entry_price, cost_basis);
                             fractional_sells_triggered[j] = true;
                         }
                     }
@@ -105,29 +113,26 @@ std::vector<BarData> run_backtest(const std::vector<OHLC>& ohlc_data, Config con
 
             if (!position_exited_this_bar && (is_bnh_exit || is_signal_exit)) {
                 double base_exit_price = get_price(bar, config.exit_timing, ohlc_data, i);
-                process_full_exit("long", config, current_bar, prev_bar, entry_price, base_exit_price);
+                process_full_exit("long", config, current_bar, prev_bar, entry_price, cost_basis, base_exit_price);
                 position_exited_this_bar = true;
             }
         } else if (current_bar.position_state == "short") {
-            // Stop Loss for short
             if (config.risk_config.stop_loss_pct > 0.0) {
                 double stop_price = entry_price * (1.0 + config.risk_config.stop_loss_pct);
                 if (bar.high >= stop_price) {
-                    process_full_exit("short", config, current_bar, prev_bar, entry_price, stop_price);
+                    process_full_exit("short", config, current_bar, prev_bar, entry_price, cost_basis, stop_price);
                     position_exited_this_bar = true;
                 }
             }
-            // Take Profit for short
             if (!position_exited_this_bar && config.risk_config.take_profit_pct > 0.0) {
                 double take_profit_price = entry_price * (1.0 - config.risk_config.take_profit_pct);
                 if (bar.low <= take_profit_price) {
-                    process_full_exit("short", config, current_bar, prev_bar, entry_price, take_profit_price);
+                    process_full_exit("short", config, current_bar, prev_bar, entry_price, cost_basis, take_profit_price);
                     position_exited_this_bar = true;
                 }
             }
-            // Signal Exit for short
             if (!position_exited_this_bar && config.short_exit && config.short_exit(bar, ohlc_data, i)) {
-                process_full_exit("short", config, current_bar, prev_bar, entry_price, get_price(bar, config.exit_timing, ohlc_data, i));
+                process_full_exit("short", config, current_bar, prev_bar, entry_price, cost_basis, get_price(bar, config.exit_timing, ohlc_data, i));
                 position_exited_this_bar = true;
             }
         }
@@ -139,9 +144,9 @@ std::vector<BarData> run_backtest(const std::vector<OHLC>& ohlc_data, Config con
             bool is_short_signal_entry = (config.trade_mode == TradeMode::SHORT || config.trade_mode == TradeMode::LONG_SHORT) && config.short_entry && config.short_entry(bar, ohlc_data, i);
 
             if (is_bnh_entry || is_long_signal_entry) {
-                process_entry("long", i, ohlc_data, config, current_bar, trade_count, entry_price, peak_trade_equity, trough_trade_equity, fractional_sells_triggered);
+                process_entry("long", i, ohlc_data, config, current_bar, trade_count, entry_price, cost_basis, peak_trade_equity, trough_trade_equity, fractional_sells_triggered);
             } else if (is_short_signal_entry) {
-                process_entry("short", i, ohlc_data, config, current_bar, trade_count, entry_price, peak_trade_equity, trough_trade_equity, fractional_sells_triggered);
+                process_entry("short", i, ohlc_data, config, current_bar, trade_count, entry_price, cost_basis, peak_trade_equity, trough_trade_equity, fractional_sells_triggered);
             }
         }
 
@@ -159,18 +164,32 @@ std::vector<BarData> run_backtest(const std::vector<OHLC>& ohlc_data, Config con
 
         peak_equity = std::max(peak_equity, current_bar.equity);
         trough_equity = std::min(trough_equity, current_bar.equity);
-        current_bar.equity_drawdown = (peak_equity > 0) ? (peak_equity - current_bar.equity) / peak_equity : 0;
-        current_bar.equity_drawup = (trough_equity > 0) ? (current_bar.equity - trough_equity) / trough_equity : 0;
+        
+        // --- 5. ROUNDING AND FINAL CALCULATIONS ---
+        current_bar.share_quantity = round_to(current_bar.share_quantity, 3);
+        current_bar.equity = round_to(current_bar.equity, 2);
+        current_bar.cash = round_to(current_bar.cash, 2);
+        current_bar.ongoing_pnl = round_to(current_bar.ongoing_pnl, 2);
+        current_bar.realized_pnl = round_to(current_bar.realized_pnl, 2);
+
+        current_bar.equity_drawdown = (peak_equity > 0) ? round_to((peak_equity - current_bar.equity) / peak_equity, 4) : 0;
+        current_bar.equity_drawup = (trough_equity > 0) ? round_to((current_bar.equity - trough_equity) / trough_equity, 4) : 0;
 
         if (current_bar.position_state != "flat") {
-            double current_trade_value = current_bar.cash + current_bar.realized_pnl + (bar.close * current_bar.share_quantity);
+            double current_trade_value = current_bar.equity;
             peak_trade_equity = std::max(peak_trade_equity, current_trade_value);
             trough_trade_equity = std::min(trough_trade_equity, current_trade_value);
-            current_bar.trade_drawdown = (peak_trade_equity > 0) ? (peak_trade_equity - current_trade_value) / peak_trade_equity : 0;
-            current_bar.trade_drawup = (trough_trade_equity > 0) ? (current_trade_value - trough_trade_equity) / trough_trade_equity : 0;
+            current_bar.trade_drawdown = (peak_trade_equity > 0) ? round_to((peak_trade_equity - current_trade_value) / peak_trade_equity, 4) : 0;
+            current_bar.trade_drawup = (trough_trade_equity > 0) ? round_to((current_trade_value - trough_trade_equity) / trough_trade_equity, 4) : 0;
         } else {
             current_bar.trade_drawdown = 0;
             current_bar.trade_drawup = 0;
+        }
+        
+        if (results.back().equity != 0) {
+            current_bar.pnl_log_change_pct = round_to(log(current_bar.equity / results.back().equity), 4);
+        } else {
+            current_bar.pnl_log_change_pct = 0;
         }
 
         results.push_back(current_bar);
@@ -182,7 +201,7 @@ std::vector<BarData> run_backtest(const std::vector<OHLC>& ohlc_data, Config con
 // HELPER FUNCTION IMPLEMENTATIONS
 // =================================================================================
 
-void process_entry(const std::string& direction, size_t i, const std::vector<OHLC>& ohlc_data, const Config& config, BarData& current_bar, int& trade_count, double& entry_price, double& peak_trade_equity, double& trough_trade_equity, std::map<int, bool>& fractional_sells_triggered) {
+void process_entry(const std::string& direction, size_t i, const std::vector<OHLC>& ohlc_data, const Config& config, BarData& current_bar, int& trade_count, double& entry_price, double& cost_basis, double& peak_trade_equity, double& trough_trade_equity, std::map<int, bool>& fractional_sells_triggered) {
     const OHLC& bar = ohlc_data[i];
     double base_price = get_price(bar, config.entry_timing, ohlc_data, i);
     
@@ -191,21 +210,22 @@ void process_entry(const std::string& direction, size_t i, const std::vector<OHL
         double cash_for_purchase = current_bar.cash - config.commission_per_trade;
         if (cash_for_purchase <= 0) return;
 
-        current_bar.share_quantity = static_cast<int>(cash_for_purchase / execution_price);
+        current_bar.share_quantity = static_cast<int>(cash_for_purchase / execution_price); // Whole shares for new entries
         if (current_bar.share_quantity == 0) return;
 
         double cost = current_bar.share_quantity * execution_price;
+        cost_basis = cost;
         current_bar.cash -= (cost + config.commission_per_trade);
         current_bar.position_state = "long";
         entry_price = base_price;
     } else if (direction == "short") {
         double execution_price = get_price_with_slippage(base_price, "sell", config);
-        // In a real scenario, this would be based on margin, but for simplicity, we'll allow shorting up to the current equity value.
         double short_value = current_bar.equity;
         if (short_value <= 0) return;
-        current_bar.share_quantity = static_cast<int>(short_value / execution_price);
+        current_bar.share_quantity = static_cast<int>(short_value / execution_price); // Whole shares for new entries
         if (current_bar.share_quantity == 0) return;
         double proceeds = current_bar.share_quantity * execution_price;
+        cost_basis = proceeds;
         current_bar.cash += (proceeds - config.commission_per_trade);
         current_bar.position_state = "short";
         entry_price = base_price;
@@ -213,43 +233,50 @@ void process_entry(const std::string& direction, size_t i, const std::vector<OHL
 
     trade_count++;
     current_bar.trade_number = trade_count;
-    current_bar.realized_pnl = 0.0;
     peak_trade_equity = trough_trade_equity = current_bar.equity;
     fractional_sells_triggered.clear();
 }
 
-void process_full_exit(const std::string& direction, const Config& config, BarData& current_bar, BarData& prev_bar, double& entry_price, double base_exit_price) {
+void process_full_exit(const std::string& direction, const Config& config, BarData& current_bar, BarData& prev_bar, double& entry_price, double& cost_basis, double base_exit_price) {
+    double pnl = 0.0;
     if (direction == "long") {
         double execution_price = get_price_with_slippage(base_exit_price, "sell", config);
         double proceeds = (current_bar.share_quantity * execution_price);
         current_bar.cash += (proceeds - config.commission_per_trade);
+        if (cost_basis > 0) {
+            pnl = proceeds - cost_basis;
+        }
     } else if (direction == "short") {
         double execution_price = get_price_with_slippage(base_exit_price, "buy", config);
         double cost_to_cover = (current_bar.share_quantity * execution_price);
         current_bar.cash -= (cost_to_cover + config.commission_per_trade);
+        if (cost_basis > 0) {
+            pnl = cost_basis - cost_to_cover;
+        }
     }
 
-    current_bar.equity = current_bar.cash; // After exit, equity is just cash
-    if (prev_bar.equity != 0) {
-         current_bar.pnl_log_change_pct = log(current_bar.equity / prev_bar.equity);
-    }
-    current_bar.share_quantity = 0;
+    current_bar.realized_pnl = prev_bar.realized_pnl + pnl;
+    cost_basis = 0.0;
+    current_bar.equity = current_bar.cash;
+    current_bar.share_quantity = 0.0;
     current_bar.position_state = "flat";
     entry_price = 0.0;
 }
 
-void process_partial_exit(const std::string& direction, const Config& config, double base_exit_price, double fraction, BarData& current_bar, double& entry_price) {
+void process_partial_exit(const std::string& direction, const Config& config, double base_exit_price, double fraction, BarData& current_bar, double& entry_price, double& cost_basis) {
     if (direction == "long") {
-        int initial_shares = static_cast<int>(current_bar.share_quantity / (1.0 - fraction));
-        int shares_to_sell = static_cast<int>(initial_shares * fraction);
+        double shares_to_sell = current_bar.share_quantity * fraction;
 
         if (shares_to_sell > 0 && current_bar.share_quantity >= shares_to_sell) {
             double execution_price = get_price_with_slippage(base_exit_price, "sell", config);
-            double pnl_from_sale = (execution_price - get_price_with_slippage(entry_price, "buy", config)) * shares_to_sell;
             
+            double cost_of_sold_shares = (cost_basis / current_bar.share_quantity) * shares_to_sell;
+            double pnl_from_sale = (shares_to_sell * execution_price) - cost_of_sold_shares;
+
             current_bar.realized_pnl += pnl_from_sale;
             current_bar.cash += (shares_to_sell * execution_price) - config.commission_per_trade;
             current_bar.share_quantity -= shares_to_sell;
+            cost_basis -= cost_of_sold_shares;
         }
     }
 }

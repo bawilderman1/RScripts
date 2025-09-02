@@ -55,7 +55,7 @@ struct Config {
 struct BarData {
     int trade_number = 0;
     std::string position_state = "flat";
-    int share_quantity = 0;
+    double share_quantity = 0.0;
     double equity = 0.0;
     double cash = 0.0;
     double ongoing_pnl = 0.0;
@@ -71,9 +71,9 @@ struct BarData {
 // FUNCTION DECLARATIONS
 // =================================================================================
 
-void process_entry(const std::string& direction, size_t i, const std::vector<OHLC>& ohlc_data, const Config& config, BarData& current_bar, int& trade_count, double& entry_price, double& peak_trade_equity, double& trough_trade_equity, std::map<int, bool>& fractional_sells_triggered);
-void process_full_exit(const std::string& direction, const Config& config, BarData& current_bar, BarData& prev_bar, double& entry_price, double base_exit_price);
-void process_partial_exit(const std::string& direction, const Config& config, double base_exit_price, double fraction, BarData& current_bar, double& entry_price);
+void process_entry(const std::string& direction, size_t i, const std::vector<OHLC>& ohlc_data, const Config& config, BarData& current_bar, int& trade_count, double& entry_price, double& cost_basis, double& peak_trade_equity, double& trough_trade_equity, std::map<int, bool>& fractional_sells_triggered);
+void process_full_exit(const std::string& direction, const Config& config, BarData& current_bar, BarData& prev_bar, double& entry_price, double& cost_basis, double base_exit_price);
+void process_partial_exit(const std::string& direction, const Config& config, double base_exit_price, double fraction, BarData& current_bar, double& entry_price, double& cost_basis);
 double get_price(const OHLC& bar, TimingOption timing, const std::vector<OHLC>& ohlc_data, size_t current_index);
 double get_price_with_slippage(double price, const std::string& direction, const Config& config);
 
