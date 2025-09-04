@@ -5,7 +5,10 @@ library(lubridate)
 library(Rcpp)
 
 # Source the C++ handler, which creates the 'run_backtest_r' function
+# Source the C++ handler, which creates the 'run_backtest_r' function
 Rcpp::sourceCpp("C:/Users/bawil/Documents/RScripts/BacktestScriptsV2/BacktestHandler.cpp")
+# Source the ad-hoc calculation script
+source("C:/Users/bawil/Documents/RScripts/BacktestScriptsV2/AdhocCalcsScript.R")
 
 # =================================================================================
 # 1. DATA LOADING
@@ -52,7 +55,7 @@ dividend_df <- data_for_backtest %>%
 # --- Configuration for the Ultimate Smoother strategy ---
 strategy_cfg <- list(
   initial_equity = 100000.0,
-  trade_mode = "LONG",
+  trade_mode = "LONG_SHORT",
   time_frame = "1mo",
   entry_timing = "CLOSE",
   exit_timing = "CLOSE",
@@ -68,6 +71,16 @@ strategy_cfg <- list(
     df %>%
       mutate(signal = ifelse(rn > 1 & (oc2 < UltimateSmoother & lag(oc2) >= lag(UltimateSmoother)), 1, 0)) %>%
       pull(signal)
+  },
+  short_entry = function(df) {
+    df %>%
+      mutate(signal = ifelse(rn > 1 & (oc2 < UltimateSmoother & lag(oc2) >= lag(UltimateSmoother)), 1, 0)) %>%
+      pull(signal)
+  },
+  short_exit = function(df) {
+    df %>%
+      mutate(signal = ifelse(rn > 1 & (oc2 > UltimateSmoother & lag(oc2) <= lag(UltimateSmoother)), 1, 0)) %>%
+      pull(signal)
   }
 )
 
@@ -78,6 +91,12 @@ strategy_results <- run_backtest_r(data_for_backtest, strategy_cfg)
 
 # --- Print results ---
 print(head(strategy_results, 25))
-cat("\n...\n")
+cat("
+...
+")
 print(tail(strategy_results, 25))
+
+# --- Ad-hoc Analysis ---
+# Call the function to print the analysis for short strategies
+calculate_short_dividend_cost(strategy_results, dividend_df, strategy_cfg)
 
