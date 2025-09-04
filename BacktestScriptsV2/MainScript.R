@@ -33,14 +33,17 @@ dbDisconnect(con, shutdown=TRUE)
 sourceCpp("C:/Users/bawil/Documents/RScripts/BacktestScriptsV2/ultimate_smoother.cpp")
 
 data_with_smoother <- as_tibble(monthly_data) %>%
-  mutate(dt = as.Date(dt),
-         rn = row_number(),
-         oc2 = (open + close) / 2) %>%
-  bind_cols(ultimateSmootherTbl(.$oc2, 10, 1))
+  mutate(
+    dt = as.Date(dt),
+    rn = row_number(),
+    oc2 = (open + close) / 2,
+    smoother_10 = ultimateSmoother(oc2, 10, 1),
+    smoother_9  = ultimateSmoother(oc2, 9, 1)
+  )
 
 data_for_backtest <- data_with_smoother %>%
   filter(dt >= as.Date('2000-01-01')) %>%
-  drop_na(UltimateSmoother)
+  drop_na(smoother_10, smoother_9)
 
 
 # Prepare dividend data for the config
@@ -62,24 +65,28 @@ strategy_cfg <- list(
   slippage_pct = 0.0005,
   commission_per_trade = 1.50,
   dividend_data = dividend_df,
+
+  # --- ENTRIES use the slower 10-bar smoother ---
   long_entry = function(df) {
     df %>%
-      mutate(signal = ifelse(rn > 1 & (oc2 > UltimateSmoother & lag(oc2) <= lag(UltimateSmoother)), 1, 0)) %>%
-      pull(signal)
-  },
-  long_exit = function(df) {
-    df %>%
-      mutate(signal = ifelse(rn > 1 & (oc2 < UltimateSmoother & lag(oc2) >= lag(UltimateSmoother)), 1, 0)) %>%
+      mutate(signal = ifelse(rn > 1 & (oc2 > smoother_10 & lag(oc2) <= lag(smoother_10)), 1, 0)) %>%
       pull(signal)
   },
   short_entry = function(df) {
     df %>%
-      mutate(signal = ifelse(rn > 1 & (oc2 < UltimateSmoother & lag(oc2) >= lag(UltimateSmoother)), 1, 0)) %>%
+      mutate(signal = ifelse(rn > 1 & (oc2 < smoother_10 & lag(oc2) >= lag(smoother_10)), 1, 0)) %>%
+      pull(signal)
+  },
+
+  # --- EXITS use the faster 9-bar smoother ---
+  long_exit = function(df) {
+    df %>%
+      mutate(signal = ifelse(rn > 1 & (oc2 < smoother_9 & lag(oc2) >= lag(smoother_9)), 1, 0)) %>%
       pull(signal)
   },
   short_exit = function(df) {
     df %>%
-      mutate(signal = ifelse(rn > 1 & (oc2 > UltimateSmoother & lag(oc2) <= lag(UltimateSmoother)), 1, 0)) %>%
+      mutate(signal = ifelse(rn > 1 & (oc2 > smoother_9 & lag(oc2) <= lag(smoother_9)), 1, 0)) %>%
       pull(signal)
   }
 )
