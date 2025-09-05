@@ -58,37 +58,13 @@ dividend_df <- data_for_backtest %>%
 # --- Configuration for the Ultimate Smoother strategy ---
 strategy_cfg <- list(
   initial_equity = 100000.0,
-  trade_mode = "LONG_SHORT",
+  trade_mode = "BUY_AND_HOLD",
   time_frame = "1mo",
   entry_timing = "CLOSE",
   exit_timing = "CLOSE",
   slippage_pct = 0.0005,
-  commission_per_trade = 1.50,
-  dividend_data = dividend_df,
-
-  # --- ENTRIES use the slower 10-bar smoother ---
-  long_entry = function(df) {
-    df %>%
-      mutate(signal = ifelse(rn > 1 & (oc2 > smoother_10 & lag(oc2) <= lag(smoother_10)), 1, 0)) %>%
-      pull(signal)
-  },
-  short_entry = function(df) {
-    df %>%
-      mutate(signal = ifelse(rn > 1 & (oc2 < smoother_10 & lag(oc2) >= lag(smoother_10)), 1, 0)) %>%
-      pull(signal)
-  },
-
-  # --- EXITS use the faster 9-bar smoother ---
-  long_exit = function(df) {
-    df %>%
-      mutate(signal = ifelse(rn > 1 & (oc2 < smoother_9 & lag(oc2) >= lag(smoother_9)), 1, 0)) %>%
-      pull(signal)
-  },
-  short_exit = function(df) {
-    df %>%
-      mutate(signal = ifelse(rn > 1 & (oc2 > smoother_9 & lag(oc2) <= lag(smoother_9)), 1, 0)) %>%
-      pull(signal)
-  }
+  commission_per_trade = 0.00,
+  dividend_data = dividend_df
 )
 
 # --- Run the Strategy backtest ---
