@@ -44,6 +44,7 @@ std::vector<BarData> run_backtest(const std::vector<OHLC>& ohlc_data, Config con
     double trough_equity = config.initial_equity;
     double peak_trade_equity = 0.0;
     double trough_trade_equity = 0.0;
+    size_t entry_bar_index = 0;
     std::map<int, bool> fractional_sells_triggered;
 
     for (size_t i = 0; i < ohlc_data.size(); ++i) {
@@ -96,6 +97,12 @@ std::vector<BarData> run_backtest(const std::vector<OHLC>& ohlc_data, Config con
                     position_exited_this_bar = true;
                 }
             }
+
+            if (!position_exited_this_bar && config.risk_config.max_bars_in_trade > 0 && (i - entry_bar_index >= static_cast<size_t>(config.risk_config.max_bars_in_trade))) {
+                double exit_price = get_price(bar, config.exit_timing, ohlc_data, i);
+                process_full_exit("long", config, current_bar, prev_bar, entry_price, cost_basis, exit_price);
+                position_exited_this_bar = true;
+            }
             if (!position_exited_this_bar) {
                 for (size_t j = 0; j < config.risk_config.fractional_sells.size(); ++j) {
                     const auto& rule = config.risk_config.fractional_sells[j];
@@ -131,6 +138,12 @@ std::vector<BarData> run_backtest(const std::vector<OHLC>& ohlc_data, Config con
                     position_exited_this_bar = true;
                 }
             }
+
+            if (!position_exited_this_bar && config.risk_config.max_bars_in_trade > 0 && (i - entry_bar_index >= static_cast<size_t>(config.risk_config.max_bars_in_trade))) {
+                double exit_price = get_price(bar, config.exit_timing, ohlc_data, i);
+                process_full_exit("short", config, current_bar, prev_bar, entry_price, cost_basis, exit_price);
+                position_exited_this_bar = true;
+            }
             if (!position_exited_this_bar && config.short_exit && config.short_exit(bar, ohlc_data, i)) {
                 process_full_exit("short", config, current_bar, prev_bar, entry_price, cost_basis, get_price(bar, config.exit_timing, ohlc_data, i));
                 position_exited_this_bar = true;
@@ -144,9 +157,9 @@ std::vector<BarData> run_backtest(const std::vector<OHLC>& ohlc_data, Config con
             bool is_short_signal_entry = (config.trade_mode == TradeMode::SHORT || config.trade_mode == TradeMode::LONG_SHORT) && config.short_entry && config.short_entry(bar, ohlc_data, i);
 
             if (is_bnh_entry || is_long_signal_entry) {
-                process_entry("long", i, ohlc_data, config, current_bar, trade_count, entry_price, cost_basis, peak_trade_equity, trough_trade_equity, fractional_sells_triggered);
+                process_entry("long", i, ohlc_data, config, current_bar, trade_count, entry_price, cost_basis, peak_trade_equity, trough_trade_equity, fractional_sells_triggered, entry_bar_index);
             } else if (is_short_signal_entry) {
-                process_entry("short", i, ohlc_data, config, current_bar, trade_count, entry_price, cost_basis, peak_trade_equity, trough_trade_equity, fractional_sells_triggered);
+                process_entry("short", i, ohlc_data, config, current_bar, trade_count, entry_price, cost_basis, peak_trade_equity, trough_trade_equity, fractional_sells_triggered, entry_bar_index);
             }
         }
 
@@ -201,7 +214,7 @@ std::vector<BarData> run_backtest(const std::vector<OHLC>& ohlc_data, Config con
 // HELPER FUNCTION IMPLEMENTATIONS
 // =================================================================================
 
-void process_entry(const std::string& direction, size_t i, const std::vector<OHLC>& ohlc_data, const Config& config, BarData& current_bar, int& trade_count, double& entry_price, double& cost_basis, double& peak_trade_equity, double& trough_trade_equity, std::map<int, bool>& fractional_sells_triggered) {
+void process_entry(const std::string& direction, size_t i, const std::vector<OHLC>& ohlc_data, const Config& config, BarData& current_bar, int& trade_count, double& entry_price, double& cost_basis, double& peak_trade_equity, double& trough_trade_equity, std::map<int, bool>& fractional_sells_triggered, size_t& entry_bar_index) {
     const OHLC& bar = ohlc_data[i];
     double base_price = get_price(bar, config.entry_timing, ohlc_data, i);
     
@@ -235,6 +248,7 @@ void process_entry(const std::string& direction, size_t i, const std::vector<OHL
     current_bar.trade_number = trade_count;
     peak_trade_equity = trough_trade_equity = current_bar.equity;
     fractional_sells_triggered.clear();
+    entry_bar_index = i;
 }
 
 void process_full_exit(const std::string& direction, const Config& config, BarData& current_bar, BarData& prev_bar, double& entry_price, double& cost_basis, double base_exit_price) {

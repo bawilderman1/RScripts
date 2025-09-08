@@ -80,6 +80,7 @@ Rcpp::DataFrame run_backtest_r(Rcpp::DataFrame ohlc_df, Rcpp::List config_list) 
         Rcpp::List risk_list = config_list["risk_config"];
         if(risk_list.containsElementNamed("stop_loss_pct")) config.risk_config.stop_loss_pct = Rcpp::as<double>(risk_list["stop_loss_pct"]);
         if(risk_list.containsElementNamed("take_profit_pct")) config.risk_config.take_profit_pct = Rcpp::as<double>(risk_list["take_profit_pct"]);
+        if(risk_list.containsElementNamed("max_bars_in_trade")) config.risk_config.max_bars_in_trade = Rcpp::as<int>(risk_list["max_bars_in_trade"]);
         if (risk_list.containsElementNamed("fractional_sells")) {
             Rcpp::DataFrame fs_df = risk_list["fractional_sells"];
             Rcpp::NumericVector profit_targets = fs_df["profit_target_pct"];

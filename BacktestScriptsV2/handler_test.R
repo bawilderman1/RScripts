@@ -300,5 +300,39 @@ test_that("Dividends are reinvested correctly for LONG positions", {
   expect_equal(tail(results$share_quantity, 1), 0)
 })
 
+# --- Test Case 11: Time-Based Stop ---
+test_that("run_backtest_r handles time-based stop correctly", {
+  ohlc_df <- data.frame(
+    dt = seq(as.Date("2023-01-01"), by = "day", length.out = 10),
+    open = seq(100, 109),
+    high = seq(101, 110),
+    low = seq(99, 108),
+    close = seq(100, 109),
+    long_entry_signal = c(1, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+    long_exit_signal =  c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+  )
+
+  config <- list(
+    initial_equity = 10000,
+    trade_mode = "LONG",
+    time_frame = "1d",
+    entry_timing = "OPEN",
+    exit_timing = "CLOSE",
+    slippage_pct = 0,
+    commission_per_trade = 0,
+    risk_config = list(max_bars_in_trade = 4)
+  )
+
+  results <- run_backtest_r(ohlc_df, config)
+
+  # Enters on bar 1 (index 0).
+  # Held for bars 1, 2, 3, 4 (indices 0, 1, 2, 3). Total 4 bars.
+  # Exit should be triggered on bar 5 (index 4).
+  expect_equal(results$position_state[1], "long")
+  expect_equal(results$position_state[4], "long")
+  expect_equal(results$position_state[5], "flat")
+  expect_equal(tail(results$position_state, 1), "flat")
+})
+
 
 print("All tests defined. Running tests...")
