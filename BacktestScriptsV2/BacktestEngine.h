@@ -66,6 +66,7 @@ struct BarData {
     double equity_drawup = 0.0;
     double trade_drawdown = 0.0;
     double trade_drawup = 0.0;
+    std::string exit_reason = "";
 };
 
 // =================================================================================
@@ -73,8 +74,8 @@ struct BarData {
 // =================================================================================
 
 void process_entry(const std::string& direction, size_t i, const std::vector<OHLC>& ohlc_data, const Config& config, BarData& current_bar, int& trade_count, double& entry_price, double& cost_basis, double& peak_trade_equity, double& trough_trade_equity, std::map<int, bool>& fractional_sells_triggered, size_t& entry_bar_index);
-void process_full_exit(const std::string& direction, const Config& config, BarData& current_bar, BarData& prev_bar, double& entry_price, double& cost_basis, double base_exit_price);
-void process_partial_exit(const std::string& direction, const Config& config, double base_exit_price, double fraction, BarData& current_bar, double& entry_price, double& cost_basis);
+void process_full_exit(const std::string& direction, const Config& config, BarData& current_bar, BarData& prev_bar, double& entry_price, double& cost_basis, double base_exit_price, const std::string& reason);
+void process_partial_exit(const std::string& direction, const Config& config, double base_exit_price, double fraction, BarData& current_bar, double& entry_price, double& cost_basis, const std::string& reason);
 double get_price(const OHLC& bar, TimingOption timing, const std::vector<OHLC>& ohlc_data, size_t current_index);
 double get_price_with_slippage(double price, const std::string& direction, const Config& config);
 

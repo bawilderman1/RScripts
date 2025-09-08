@@ -197,7 +197,7 @@ test_that("run_backtest_r handles no trades correctly", {
 })
 
 # --- Test Case 7: Stop-Loss Trigger ---
-test_that("run_backtest_r triggers stop-loss correctly", {
+test_that("run_backtest_r triggers stop-loss and sets exit_reason correctly", {
   ohlc_df <- data.frame(
     dt = as.Date(c("2023-01-01", "2023-01-02", "2023-01-03", "2023-01-04")),
     open = c(100, 105, 106, 90),
@@ -214,6 +214,10 @@ test_that("run_backtest_r triggers stop-loss correctly", {
   )
 
   results <- run_backtest_r(ohlc_df, config)
+
+  # Stop-loss triggers on bar 3 (index 2), where low (85) < stop_price (90)
+  expect_equal(results$exit_reason[3], "STOP_LOSS")
+  expect_equal(results$exit_reason[4], "") # Should be empty on subsequent bars
 
   final_pnl <- tail(results$realized_pnl, 1)
   expect_equal(final_pnl, -1000.00)

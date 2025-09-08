@@ -50,6 +50,7 @@ std::vector<BarData> run_backtest(const std::vector<OHLC>& ohlc_data, Config con
     for (size_t i = 0; i < ohlc_data.size(); ++i) {
         BarData prev_bar = results.back();
         BarData current_bar = prev_bar;
+        current_bar.exit_reason = ""; // Reset reason at the start of each bar
         const OHLC& bar = ohlc_data[i];
         bool position_exited_this_bar = false;
 
@@ -86,21 +87,21 @@ std::vector<BarData> run_backtest(const std::vector<OHLC>& ohlc_data, Config con
             if (config.risk_config.stop_loss_pct > 0.0) {
                 double stop_price = entry_price * (1.0 - config.risk_config.stop_loss_pct);
                 if (bar.low <= stop_price) {
-                    process_full_exit("long", config, current_bar, prev_bar, entry_price, cost_basis, stop_price);
+                    process_full_exit("long", config, current_bar, prev_bar, entry_price, cost_basis, stop_price, "STOP_LOSS");
                     position_exited_this_bar = true;
                 }
             }
             if (!position_exited_this_bar && config.risk_config.take_profit_pct > 0.0) {
                 double take_profit_price = entry_price * (1.0 + config.risk_config.take_profit_pct);
                 if (bar.high >= take_profit_price) {
-                    process_full_exit("long", config, current_bar, prev_bar, entry_price, cost_basis, take_profit_price);
+                    process_full_exit("long", config, current_bar, prev_bar, entry_price, cost_basis, take_profit_price, "TAKE_PROFIT");
                     position_exited_this_bar = true;
                 }
             }
 
             if (!position_exited_this_bar && config.risk_config.max_bars_in_trade > 0 && (i - entry_bar_index >= static_cast<size_t>(config.risk_config.max_bars_in_trade))) {
                 double exit_price = get_price(bar, config.exit_timing, ohlc_data, i);
-                process_full_exit("long", config, current_bar, prev_bar, entry_price, cost_basis, exit_price);
+                process_full_exit("long", config, current_bar, prev_bar, entry_price, cost_basis, exit_price, "TIME_STOP");
                 position_exited_this_bar = true;
             }
             if (!position_exited_this_bar) {
@@ -109,7 +110,7 @@ std::vector<BarData> run_backtest(const std::vector<OHLC>& ohlc_data, Config con
                     if (!fractional_sells_triggered[j]) {
                         double partial_profit_price = entry_price * (1.0 + rule.profit_target_pct);
                         if (bar.high >= partial_profit_price) {
-                            process_partial_exit("long", config, partial_profit_price, rule.fraction_to_sell, current_bar, entry_price, cost_basis);
+                            process_partial_exit("long", config, partial_profit_price, rule.fraction_to_sell, current_bar, entry_price, cost_basis, "PARTIAL_TAKE_PROFIT");
                             fractional_sells_triggered[j] = true;
                         }
                     }
@@ -120,32 +121,32 @@ std::vector<BarData> run_backtest(const std::vector<OHLC>& ohlc_data, Config con
 
             if (!position_exited_this_bar && (is_bnh_exit || is_signal_exit)) {
                 double base_exit_price = get_price(bar, config.exit_timing, ohlc_data, i);
-                process_full_exit("long", config, current_bar, prev_bar, entry_price, cost_basis, base_exit_price);
+                process_full_exit("long", config, current_bar, prev_bar, entry_price, cost_basis, base_exit_price, "SIGNAL");
                 position_exited_this_bar = true;
             }
         } else if (current_bar.position_state == "short") {
             if (config.risk_config.stop_loss_pct > 0.0) {
                 double stop_price = entry_price * (1.0 + config.risk_config.stop_loss_pct);
                 if (bar.high >= stop_price) {
-                    process_full_exit("short", config, current_bar, prev_bar, entry_price, cost_basis, stop_price);
+                    process_full_exit("short", config, current_bar, prev_bar, entry_price, cost_basis, stop_price, "STOP_LOSS");
                     position_exited_this_bar = true;
                 }
             }
             if (!position_exited_this_bar && config.risk_config.take_profit_pct > 0.0) {
                 double take_profit_price = entry_price * (1.0 - config.risk_config.take_profit_pct);
                 if (bar.low <= take_profit_price) {
-                    process_full_exit("short", config, current_bar, prev_bar, entry_price, cost_basis, take_profit_price);
+                    process_full_exit("short", config, current_bar, prev_bar, entry_price, cost_basis, take_profit_price, "TAKE_PROFIT");
                     position_exited_this_bar = true;
                 }
             }
 
             if (!position_exited_this_bar && config.risk_config.max_bars_in_trade > 0 && (i - entry_bar_index >= static_cast<size_t>(config.risk_config.max_bars_in_trade))) {
                 double exit_price = get_price(bar, config.exit_timing, ohlc_data, i);
-                process_full_exit("short", config, current_bar, prev_bar, entry_price, cost_basis, exit_price);
+                process_full_exit("short", config, current_bar, prev_bar, entry_price, cost_basis, exit_price, "TIME_STOP");
                 position_exited_this_bar = true;
             }
             if (!position_exited_this_bar && config.short_exit && config.short_exit(bar, ohlc_data, i)) {
-                process_full_exit("short", config, current_bar, prev_bar, entry_price, cost_basis, get_price(bar, config.exit_timing, ohlc_data, i));
+                process_full_exit("short", config, current_bar, prev_bar, entry_price, cost_basis, get_price(bar, config.exit_timing, ohlc_data, i), "SIGNAL");
                 position_exited_this_bar = true;
             }
         }
@@ -251,7 +252,7 @@ void process_entry(const std::string& direction, size_t i, const std::vector<OHL
     entry_bar_index = i;
 }
 
-void process_full_exit(const std::string& direction, const Config& config, BarData& current_bar, BarData& prev_bar, double& entry_price, double& cost_basis, double base_exit_price) {
+void process_full_exit(const std::string& direction, const Config& config, BarData& current_bar, BarData& prev_bar, double& entry_price, double& cost_basis, double base_exit_price, const std::string& reason) {
     double pnl = 0.0;
     if (direction == "long") {
         double execution_price = get_price_with_slippage(base_exit_price, "sell", config);
@@ -275,9 +276,10 @@ void process_full_exit(const std::string& direction, const Config& config, BarDa
     current_bar.share_quantity = 0.0;
     current_bar.position_state = "flat";
     entry_price = 0.0;
+    current_bar.exit_reason = reason;
 }
 
-void process_partial_exit(const std::string& direction, const Config& config, double base_exit_price, double fraction, BarData& current_bar, double& entry_price, double& cost_basis) {
+void process_partial_exit(const std::string& direction, const Config& config, double base_exit_price, double fraction, BarData& current_bar, double& entry_price, double& cost_basis, const std::string& reason) {
     if (direction == "long") {
         double shares_to_sell = current_bar.share_quantity * fraction;
 
@@ -291,6 +293,7 @@ void process_partial_exit(const std::string& direction, const Config& config, do
             current_bar.cash += (shares_to_sell * execution_price) - config.commission_per_trade;
             current_bar.share_quantity -= shares_to_sell;
             cost_basis -= cost_of_sold_shares;
+            current_bar.exit_reason = reason;
         }
     }
 }

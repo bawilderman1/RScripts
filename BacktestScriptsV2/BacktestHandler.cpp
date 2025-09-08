@@ -156,6 +156,7 @@ Rcpp::DataFrame run_backtest_r(Rcpp::DataFrame ohlc_df, Rcpp::List config_list) 
                           pnl_log_change_pct_out, equity_drawdown_out, equity_drawup_out, 
                           trade_drawdown_out, trade_drawup_out;
     Rcpp::IntegerVector trade_number_out;
+    Rcpp::CharacterVector exit_reason_out;
 
     if (static_cast<R_xlen_t>(results.size()) == dates.size() + 1) {
         for (size_t i = 1; i < results.size(); ++i) {
@@ -173,10 +174,9 @@ Rcpp::DataFrame run_backtest_r(Rcpp::DataFrame ohlc_df, Rcpp::List config_list) 
             equity_drawup_out.push_back(bar.equity_drawup);
             trade_drawdown_out.push_back(bar.trade_drawdown);
             trade_drawup_out.push_back(bar.trade_drawup);
+            exit_reason_out.push_back(bar.exit_reason);
         }
     }
-
-    dt_out.attr("class") = "Date";
 
     dt_out.attr("class") = "Date";
 
@@ -193,6 +193,7 @@ Rcpp::DataFrame run_backtest_r(Rcpp::DataFrame ohlc_df, Rcpp::List config_list) 
         Rcpp::Named("equity_drawdown_pct") = equity_drawdown_out,
         Rcpp::Named("equity_drawup_pct") = equity_drawup_out,
         Rcpp::Named("trade_drawdown_pct") = trade_drawdown_out,
-        Rcpp::Named("trade_drawup_pct") = trade_drawup_out
+        Rcpp::Named("trade_drawup_pct") = trade_drawup_out,
+        Rcpp::Named("exit_reason") = exit_reason_out
     );
 }

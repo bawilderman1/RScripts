@@ -65,6 +65,7 @@ strategy_cfg <- list(
   slippage_pct = 0.0005,
   commission_per_trade = 1.50,
   risk_config = list(
+    stop_loss_pct = 0.05, # 5% stop-loss
     fractional_sells = data.frame(
       profit_target_pct = c(0.05),  # A 5% profit target
       fraction_to_sell  = c(0.50)   # Sell 50% of the position
