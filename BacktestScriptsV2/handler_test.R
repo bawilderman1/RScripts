@@ -338,5 +338,49 @@ test_that("run_backtest_r handles time-based stop correctly", {
   expect_equal(tail(results$position_state, 1), "flat")
 })
 
+# --- Test Case 12: Fractional Sell on SHORT position ---
+test_that("run_backtest_r handles fractional buy-to-cover for SHORT positions", {
+  ohlc_df <- data.frame(
+    dt = as.Date(c("2023-01-01", "2023-01-02", "2023-01-03", "2023-01-04")),
+    open = c(100, 98, 96, 94),
+    high = c(101, 99, 97, 95),
+    low = c(99, 97, 95, 93),
+    close = c(100, 98, 96, 94),
+    short_entry_signal = c(1, 0, 0, 0),
+    short_exit_signal = c(0, 0, 0, 0)
+  )
+
+  config <- list(
+    initial_equity = 10000,
+    trade_mode = "SHORT",
+    time_frame = "1d",
+    entry_timing = "OPEN",
+    exit_timing = "CLOSE",
+    slippage_pct = 0,
+    commission_per_trade = 0,
+    risk_config = list(
+      fractional_sells = data.frame(
+        profit_target_pct = c(0.05), # 5% profit (price drops to 95)
+        fraction_to_sell = c(0.5)    # Cover 50% of the position
+      )
+    )
+  )
+
+  results <- run_backtest_r(ohlc_df, config)
+
+  # Short entry on bar 1 at 100. Shares = 10000 / 100 = 100.
+  initial_shares <- 100
+  
+  # Profit target is 100 * (1 - 0.05) = 95.
+  # On bar 3, low is 95, so partial exit should trigger.
+  # 50% of 100 shares (50) should be bought back.
+  
+  expect_equal(results$share_quantity[2], initial_shares) # Before exit
+  expect_equal(results$share_quantity[3], initial_shares / 2) # After partial exit
+  expect_equal(results$position_state[3], "short") # Still short
+  expect_true(results$realized_pnl[3] > 0) # Should have realized a profit
+  expect_equal(results$exit_reason[3], "PARTIAL_TAKE_PROFIT")
+})
+
 
 print("All tests defined. Running tests...")

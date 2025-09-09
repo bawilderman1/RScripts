@@ -58,7 +58,7 @@ dividend_df <- data_for_backtest %>%
 # --- Configuration for the Ultimate Smoother strategy ---
 strategy_cfg <- list(
   initial_equity = 100000.0,
-  trade_mode = "LONG",
+  trade_mode = "SHORT",
   time_frame = "1mo",
   entry_timing = "CLOSE",
   exit_timing = "CLOSE",
@@ -66,20 +66,17 @@ strategy_cfg <- list(
   commission_per_trade = 1.50,
   risk_config = list(
     stop_loss_pct = 0.05, # 5% stop-loss
-    fractional_sells = data.frame(
-      profit_target_pct = c(0.05),  # A 5% profit target
-      fraction_to_sell  = c(0.50)   # Sell 50% of the position
-    )
+    take_profit_pct = 0.10 # 10% take-profit
   ),
   dividend_data = dividend_df,
-  long_entry = function(df) {
+  short_entry = function(df) {
     df %>%
-      mutate(signal = ifelse(rn > 1 & (oc2 > smoother_10 & lag(oc2) <= lag(smoother_10)), 1, 0)) %>%
+      mutate(signal = ifelse(rn > 1 & (oc2 < smoother_10 & lag(oc2) >= lag(smoother_10)), 1, 0)) %>%
       pull(signal)
   },
-  long_exit = function(df) {
+  short_exit = function(df) {
     df %>%
-      mutate(signal = ifelse(rn > 1 & (oc2 < smoother_9 & lag(oc2) >= lag(smoother_9)), 1, 0)) %>%
+      mutate(signal = ifelse(rn > 1 & (oc2 > smoother_9 & lag(oc2) <= lag(smoother_9)), 1, 0)) %>%
       pull(signal)
   }
 )

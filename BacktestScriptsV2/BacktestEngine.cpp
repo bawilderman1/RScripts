@@ -145,6 +145,18 @@ std::vector<BarData> run_backtest(const std::vector<OHLC>& ohlc_data, Config con
                 process_full_exit("short", config, current_bar, prev_bar, entry_price, cost_basis, exit_price, "TIME_STOP");
                 position_exited_this_bar = true;
             }
+            if (!position_exited_this_bar) {
+                for (size_t j = 0; j < config.risk_config.fractional_sells.size(); ++j) {
+                    const auto& rule = config.risk_config.fractional_sells[j];
+                    if (!fractional_sells_triggered[j]) {
+                        double partial_profit_price = entry_price * (1.0 - rule.profit_target_pct);
+                        if (bar.low <= partial_profit_price) {
+                            process_partial_exit("short", config, partial_profit_price, rule.fraction_to_sell, current_bar, entry_price, cost_basis, "PARTIAL_TAKE_PROFIT");
+                            fractional_sells_triggered[j] = true;
+                        }
+                    }
+                }
+            }
             if (!position_exited_this_bar && config.short_exit && config.short_exit(bar, ohlc_data, i)) {
                 process_full_exit("short", config, current_bar, prev_bar, entry_price, cost_basis, get_price(bar, config.exit_timing, ohlc_data, i), "SIGNAL");
                 position_exited_this_bar = true;
@@ -293,6 +305,21 @@ void process_partial_exit(const std::string& direction, const Config& config, do
             current_bar.cash += (shares_to_sell * execution_price) - config.commission_per_trade;
             current_bar.share_quantity -= shares_to_sell;
             cost_basis -= cost_of_sold_shares;
+            current_bar.exit_reason = reason;
+        }
+    } else if (direction == "short") {
+        double shares_to_cover = current_bar.share_quantity * fraction;
+
+        if (shares_to_cover > 0 && current_bar.share_quantity >= shares_to_cover) {
+            double execution_price = get_price_with_slippage(base_exit_price, "buy", config);
+
+            double proceeds_of_covered_shares = (cost_basis / current_bar.share_quantity) * shares_to_cover;
+            double pnl_from_cover = proceeds_of_covered_shares - (shares_to_cover * execution_price);
+
+            current_bar.realized_pnl += pnl_from_cover;
+            current_bar.cash -= (shares_to_cover * execution_price + config.commission_per_trade);
+            current_bar.share_quantity -= shares_to_cover;
+            cost_basis -= proceeds_of_covered_shares;
             current_bar.exit_reason = reason;
         }
     }
