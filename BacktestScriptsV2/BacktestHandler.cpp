@@ -111,8 +111,10 @@ Rcpp::DataFrame run_backtest_r(Rcpp::DataFrame ohlc_df, Rcpp::List config_list) 
     Rcpp::NumericVector low = ohlc_df["low"];
     Rcpp::NumericVector close = ohlc_df["close"];
     Rcpp::DateVector dates = ohlc_df["dt"];
+    Rcpp::NumericVector dividend = ohlc_df["dividend"]; // Read the dividend column
     for (int i = 0; i < ohlc_df.nrows(); ++i) {
-        ohlc_data.push_back({ open(i), high(i), low(i), close(i), static_cast<long long>(dates(i)) * 86400 });
+        // Populate the struct in the correct order, including the dividend
+        ohlc_data.push_back({ static_cast<long long>(dates(i)) * 86400, open(i), high(i), low(i), close(i), dividend(i) });
     }
 
     // --- 3. CREATE AND ASSIGN SIGNAL FUNCTIONS ---

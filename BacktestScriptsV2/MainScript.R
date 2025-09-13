@@ -4,52 +4,47 @@ library(duckdb)
 library(lubridate)
 library(Rcpp)
 
-# Source the C++ handler, which creates the 'run_backtest_r' function
-# Source the C++ handler, which creates the 'run_backtest_r' function
+# =================================================================================
+# 1. SOURCING & CONFIGURATION
+# =================================================================================
+
+# --- Source all external scripts ---
+source("C:/Users/bawil/Documents/RScripts/BacktestScriptsV2/Preprocessor.R")
 Rcpp::sourceCpp("C:/Users/bawil/Documents/RScripts/BacktestScriptsV2/BacktestHandler.cpp")
-# Source the ad-hoc calculation script
+sourceCpp("C:/Users/bawil/Documents/RScripts/BacktestScriptsV2/ultimate_smoother.cpp")
 source("C:/Users/bawil/Documents/RScripts/BacktestScriptsV2/AdhocCalcsScript.R")
 
-# =================================================================================
-# 1. DATA LOADING
-# =================================================================================
-con <- dbConnect(duckdb::duckdb(), dbdir = "C:/Users/bawil/Documents/StockData/Databases/spyanalysis.db", read_only = TRUE)
-monthly_data <- dbGetQuery(
-  con,
-  "SELECT
-    m.dt, m.open, m.high, m.low, m.close, d.dividend
-   FROM spy_monthly m
-   LEFT JOIN (SELECT
-                time_bucket(to_months(1), dt) as dt, max(dividend) AS dividend 
-              FROM spy_1d_dividends
-              WHERE dt >= '1993-02-01' GROUP BY 1) d ON m.dt = d.dt
-   ORDER BY m.dt;"
-)
-dbDisconnect(con, shutdown=TRUE)
+# --- Main Configuration ---
+TIME_FRAME <- "1mo" # Options: "1d", "1w", "1mo"
+DB_PATH <- "C:/Users/bawil/Documents/StockData/Databases/spyanalysis.db"
+BASE_TABLE <- "spy_1d_adj" # Base table for prices
+DIVIDEND_TABLE <- "spy_1d_dividends" # Set to NULL to disable dividends
 
 # =================================================================================
 # 2. DATA PREPARATION & SIGNAL GENERATION
 # =================================================================================
-sourceCpp("C:/Users/bawil/Documents/RScripts/BacktestScriptsV2/ultimate_smoother.cpp")
 
-data_with_smoother <- as_tibble(monthly_data) %>%
+# --- Load and prepare data using the preprocessor ---
+all_data <- load_and_prepare_data(
+  timeframe = TIME_FRAME,
+  db_path = DB_PATH,
+  base_table = BASE_TABLE,
+  dividend_table = DIVIDEND_TABLE
+)
+
+# --- Calculate indicators ---
+data_with_smoother <- all_data %>%
   mutate(
-    dt = as.Date(dt),
     rn = row_number(),
     oc2 = (open + close) / 2,
     smoother_10 = ultimateSmoother(oc2, 10, 1),
     smoother_9  = ultimateSmoother(oc2, 9, 1)
   )
 
+# --- Filter data for the backtest period ---
 data_for_backtest <- data_with_smoother %>%
   filter(dt >= as.Date('2000-01-01')) %>%
   drop_na(smoother_10, smoother_9)
-
-
-# Prepare dividend data for the config
-dividend_df <- data_for_backtest %>%
-  filter(!is.na(dividend)) %>%
-  select(ex_date = dt, dividend_amount = dividend)
 
 # =================================================================================
 # 3. BACKTEST EXECUTION
@@ -59,7 +54,7 @@ dividend_df <- data_for_backtest %>%
 strategy_cfg <- list(
   initial_equity = 100000.0,
   trade_mode = "SHORT",
-  time_frame = "1mo",
+  time_frame = TIME_FRAME,
   entry_timing = "CLOSE",
   exit_timing = "CLOSE",
   slippage_pct = 0.0005,
@@ -68,7 +63,7 @@ strategy_cfg <- list(
     stop_loss_pct = 0.05, # 5% stop-loss
     take_profit_pct = 0.10 # 10% take-profit
   ),
-  dividend_data = dividend_df,
+  # NOTE: dividend_data is no longer needed here; it's part of the main data frame.
   short_entry = function(df) {
     df %>%
       mutate(signal = ifelse(rn > 1 & (oc2 < smoother_10 & lag(oc2) >= lag(smoother_10)), 1, 0)) %>%
@@ -88,12 +83,14 @@ strategy_results <- run_backtest_r(data_for_backtest, strategy_cfg)
 
 # --- Print results ---
 print(head(strategy_results, 25))
-cat("
-...
-")
+cat("\r
+...\n")
 print(tail(strategy_results, 25))
 
 # --- Ad-hoc Analysis ---
-# Call the function to print the analysis for short strategies
-calculate_short_dividend_cost(strategy_results, dividend_df, strategy_cfg)
+# Re-create the dividend_df needed for the ad-hoc script from the results
+dividend_df_for_adhoc <- all_data %>%
+  filter(dividend > 0) %>%
+  select(ex_date = dt, dividend_amount = dividend)
 
+calculate_short_dividend_cost(strategy_results, dividend_df_for_adhoc, strategy_cfg)

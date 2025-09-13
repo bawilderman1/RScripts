@@ -55,30 +55,19 @@ std::vector<BarData> run_backtest(const std::vector<OHLC>& ohlc_data, Config con
         bool position_exited_this_bar = false;
 
         // --- 1. PROCESS DIVIDENDS ---
-        if (!config.dividend_data.empty()) {
-            long long bar_start_time = bar.timestamp;
-            long long bar_end_time = (i + 1 < ohlc_data.size()) ? ohlc_data[i+1].timestamp : 9999999999LL;
-            double total_dividends_for_bar = 0.0;
-            auto it = config.dividend_data.lower_bound(bar_start_time);
-            while (it != config.dividend_data.end() && it->first < bar_end_time) {
-                total_dividends_for_bar += it->second;
-                ++it;
-            }
-
-            if (total_dividends_for_bar > 0.0) {
-                double dividend_cash = total_dividends_for_bar * current_bar.share_quantity;
-                if (current_bar.position_state == "long") {
-                    // Reinvest dividend
-                    double reinvest_price = get_price(bar, TimingOption::CLOSE, ohlc_data, i);
-                    if (reinvest_price > 0) {
-                        double shares_to_buy = dividend_cash / reinvest_price;
-                        current_bar.share_quantity += shares_to_buy;
-                        // Cost basis update is tricky here. For simplicity, we assume the new shares have a cost basis equal to their purchase price.
-                        // A more advanced implementation would track lots.
-                    }
-                } else if (current_bar.position_state == "short") {
-                    current_bar.cash -= dividend_cash;
+        if (bar.dividend > 0.0 && current_bar.share_quantity > 0) {
+            double dividend_cash = bar.dividend * current_bar.share_quantity;
+            if (current_bar.position_state == "long") {
+                // Reinvest dividend by purchasing more shares
+                double reinvest_price = get_price(bar, TimingOption::CLOSE, ohlc_data, i);
+                if (reinvest_price > 0) {
+                    double shares_to_buy = dividend_cash / reinvest_price;
+                    current_bar.share_quantity += shares_to_buy;
+                    cost_basis += dividend_cash; // Increase cost basis by the amount reinvested
                 }
+            } else if (current_bar.position_state == "short") {
+                // For short positions, the dividend is a cash expense
+                current_bar.cash -= dividend_cash;
             }
         }
 

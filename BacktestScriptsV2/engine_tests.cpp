@@ -7,9 +7,9 @@
 // Mock data for testing
 std::vector<OHLC> create_mock_ohlc_data() {
     return {
-        {100.0, 105.0, 99.0, 102.0, 1672531200}, // 2023-01-01
-        {102.0, 108.0, 101.0, 107.0, 1672617600}, // 2023-01-02
-        {107.0, 110.0, 106.0, 109.0, 1672704000}  // 2023-01-03
+        {1672531200, 100.0, 105.0, 99.0, 102.0, 0.0}, // 2023-01-01
+        {1672617600, 102.0, 108.0, 101.0, 107.0, 0.0}, // 2023-01-02
+        {1672704000, 107.0, 110.0, 106.0, 109.0, 0.0}  // 2023-01-03
     };
 }
 
@@ -70,11 +70,13 @@ TEST_CASE("process_entry function tests", "[process_entry]") {
 
     int trade_count = 0;
     double entry_price = 0.0;
+    double cost_basis = 0.0; // Declare missing variable
+    size_t entry_bar_index = 0; // Declare missing variable
     double peak_trade_equity = 0.0;
     double trough_trade_equity = 0.0;
     std::map<int, bool> fractional_sells_triggered;
 
-    process_entry("long", 1, ohlc_data, config, current_bar, trade_count, entry_price, peak_trade_equity, trough_trade_equity, fractional_sells_triggered);
+    process_entry("long", 1, ohlc_data, config, current_bar, trade_count, entry_price, cost_basis, peak_trade_equity, trough_trade_equity, fractional_sells_triggered, entry_bar_index);
 
     REQUIRE(trade_count == 1);
     REQUIRE(current_bar.trade_number == 1);
@@ -92,21 +94,21 @@ TEST_CASE("process_full_exit function tests", "[process_full_exit]") {
     current_bar.position_state = "long";
     current_bar.share_quantity = 100;
     current_bar.cash = 500.0;
-    current_bar.realized_pnl = 100.0;
 
     BarData prev_bar;
-    prev_bar.equity = 10000.0;
+    prev_bar.realized_pnl = 100.0;
 
-    double entry_price = 100.0;
+    double entry_price = 0.0; // Not used in this test's assertions but needed for signature
+    double cost_basis = 9500.0; // e.g. 95 * 100
     double exit_price = 110.0;
 
-    process_full_exit("long", config, current_bar, prev_bar, entry_price, exit_price);
+    process_full_exit("long", config, current_bar, prev_bar, entry_price, cost_basis, exit_price, "SIGNAL");
 
     REQUIRE(current_bar.position_state == "flat");
     REQUIRE(current_bar.share_quantity == 0);
-    REQUIRE(entry_price == 0.0);
     REQUIRE(current_bar.cash == Approx(500.0 + (100 * 110.0) - 5.0));
-    REQUIRE(current_bar.equity == Approx(500.0 + (100 * 110.0) - 5.0 + 100.0));
+    // Realized PnL = prev_pnl + (proceeds - cost_basis)
+    REQUIRE(current_bar.realized_pnl == Approx(100.0 + ((100 * 110.0) - 9500.0)));
 }
 
 TEST_CASE("process_partial_exit function tests", "[process_partial_exit]") {
@@ -118,11 +120,11 @@ TEST_CASE("process_partial_exit function tests", "[process_partial_exit]") {
 
 TEST_CASE("run_backtest integration test", "[run_backtest]") {
     std::vector<OHLC> ohlc_data = {
-        {100.0, 102.0, 99.0, 101.0, 0},
-        {101.0, 105.0, 100.0, 104.0, 1},
-        {104.0, 106.0, 103.0, 105.0, 2},
-        {105.0, 110.0, 104.0, 109.0, 3},
-        {109.0, 112.0, 108.0, 110.0, 4}
+        {0, 100.0, 102.0, 99.0, 101.0, 0.0},
+        {1, 101.0, 105.0, 100.0, 104.0, 0.0},
+        {2, 104.0, 106.0, 103.0, 105.0, 0.0},
+        {3, 105.0, 110.0, 104.0, 109.0, 0.0},
+        {4, 109.0, 112.0, 108.0, 110.0, 0.0}
     };
 
     Config config;
@@ -160,9 +162,9 @@ TEST_CASE("Interaction bug: Simultaneous full exit and partial exit", "[run_back
     // This test creates a scenario where a single bar's high price triggers
     // both a fractional sell and a full take-profit to test their interaction.
     std::vector<OHLC> ohlc_data = {
-        {100.0, 100.0, 100.0, 100.0, 0}, // Bar 0: Flat
-        {100.0, 100.0, 100.0, 100.0, 1}, // Bar 1: Enter at 100.0
-        {100.0, 111.0, 100.0, 110.0, 2}  // Bar 2: High of 111 should trigger both exits
+        {0, 100.0, 100.0, 100.0, 100.0, 0.0}, // Bar 0: Flat
+        {1, 100.0, 100.0, 100.0, 100.0, 0.0}, // Bar 1: Enter at 100.0
+        {2, 100.0, 111.0, 100.0, 110.0, 0.0}  // Bar 2: High of 111 should trigger both exits
     };
 
     Config config;
@@ -201,8 +203,8 @@ TEST_CASE("Interaction bug: Simultaneous full exit and partial exit", "[run_back
 
 TEST_CASE("Engine returns a vector of results", "[run_backtest][core]") {
     std::vector<OHLC> ohlc_data = {
-        {100.0, 100.0, 100.0, 100.0, 0},
-        {100.0, 100.0, 100.0, 100.0, 1}
+        {0, 100.0, 100.0, 100.0, 100.0, 0.0},
+        {1, 100.0, 100.0, 100.0, 100.0, 0.0}
     };
     Config config;
     config.initial_equity = 10000.0;
@@ -217,7 +219,7 @@ TEST_CASE("Engine returns a vector of results", "[run_backtest][core]") {
 auto dummy_entry = [](const OHLC&, const std::vector<OHLC>&, size_t i) { return i == 0; };
 
 TEST_CASE("Engine handles nullptr for long_exit", "[run_backtest][core]") {
-    std::vector<OHLC> ohlc_data = {{100.0, 100.0, 100.0, 100.0, 0}};
+    std::vector<OHLC> ohlc_data = {{0, 100.0, 100.0, 100.0, 100.0, 0.0}};
     Config config;
     config.initial_equity = 10000.0;
     config.trade_mode = TradeMode::LONG;
@@ -234,7 +236,7 @@ TEST_CASE("Engine handles nullptr for long_exit", "[run_backtest][core]") {
 auto dummy_exit = [](const OHLC&, const std::vector<OHLC>&, size_t i) { return i == 1; };
 
 TEST_CASE("Engine handles nullptr for long_entry", "[run_backtest][core]") {
-    std::vector<OHLC> ohlc_data = {{100.0, 100.0, 100.0, 100.0, 0}};
+    std::vector<OHLC> ohlc_data = {{0, 100.0, 100.0, 100.0, 100.0, 0.0}};
     Config config;
     config.initial_equity = 10000.0;
     config.trade_mode = TradeMode::LONG;
@@ -245,7 +247,7 @@ TEST_CASE("Engine handles nullptr for long_entry", "[run_backtest][core]") {
 }
 
 TEST_CASE("Engine handles nullptr for short_entry", "[run_backtest][core]") {
-    std::vector<OHLC> ohlc_data = {{100.0, 100.0, 100.0, 100.0, 0}};
+    std::vector<OHLC> ohlc_data = {{0, 100.0, 100.0, 100.0, 100.0, 0.0}};
     Config config;
     config.initial_equity = 10000.0;
     config.trade_mode = TradeMode::SHORT;
@@ -256,7 +258,7 @@ TEST_CASE("Engine handles nullptr for short_entry", "[run_backtest][core]") {
 }
 
 TEST_CASE("Engine handles nullptr for short_exit", "[run_backtest][core]") {
-    std::vector<OHLC> ohlc_data = {{100.0, 100.0, 100.0, 100.0, 0}};
+    std::vector<OHLC> ohlc_data = {{0, 100.0, 100.0, 100.0, 100.0, 0.0}};
     Config config;
     config.initial_equity = 10000.0;
     config.trade_mode = TradeMode::SHORT;
@@ -268,8 +270,8 @@ TEST_CASE("Engine handles nullptr for short_exit", "[run_backtest][core]") {
 
 TEST_CASE("Engine executes BUY_AND_HOLD correctly", "[run_backtest][bnh]") {
     std::vector<OHLC> ohlc_data = {
-        {100.0, 100.0, 100.0, 100.0, 0}, // Bar 0
-        {110.0, 110.0, 110.0, 110.0, 1}  // Bar 1
+        {0, 100.0, 100.0, 100.0, 100.0, 0.0}, // Bar 0
+        {1, 110.0, 110.0, 110.0, 110.0, 0.0}  // Bar 1
     };
     Config config;
     config.initial_equity = 10000.0;

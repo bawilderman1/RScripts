@@ -11,11 +11,12 @@
 // =================================================================================
 
 struct OHLC {
+    long long timestamp;
     double open;
     double high;
     double low;
     double close;
-    long long timestamp;
+    double dividend; // Added to handle dividends directly on the bar
 };
 
 struct FractionalSellRule {
