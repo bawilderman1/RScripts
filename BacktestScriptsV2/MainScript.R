@@ -15,7 +15,7 @@ sourceCpp("C:/Users/bawil/Documents/RScripts/BacktestScriptsV2/ultimate_smoother
 source("C:/Users/bawil/Documents/RScripts/BacktestScriptsV2/AdhocCalcsScript.R")
 
 # --- Main Configuration ---
-TIME_FRAME <- "1mo" # Options: "1d", "1w", "1mo"
+TIME_FRAME <- "1w" # Options: "1d", "1w", "1mo"
 DB_PATH <- "C:/Users/bawil/Documents/StockData/Databases/spyanalysis.db"
 
 # =================================================================================
@@ -24,7 +24,7 @@ DB_PATH <- "C:/Users/bawil/Documents/StockData/Databases/spyanalysis.db"
 
 # --- Load Data (SQL is now managed here) ---
 con <- dbConnect(duckdb::duckdb(), dbdir = DB_PATH, read_only = TRUE)
-daily_data <- dbGetQuery(con, "
+price_data <- dbGetQuery(con, "
   SELECT 
     p.dt, p.open, p.high, p.low, p.close, 
     COALESCE(d.dividend, 0.0) as dividend
@@ -36,17 +36,18 @@ dbDisconnect(con, shutdown = TRUE)
 
 # --- Aggregate Data using the new Preprocessor ---
 # Convert to tibble for easier handling
-daily_data <- as_tibble(daily_data) %>% mutate(dt = as.Date(dt))
+price_data <- as_tibble(price_data) %>% mutate(dt = as.Date(dt))
 
 aggregated_data <- to_agg_timeframe(
   from_timeframe = "1d",
   to_timeframe = TIME_FRAME,
-  dt = daily_data$dt,
-  open = daily_data$open,
-  high = daily_data$high,
-  low = daily_data$low,
-  close = daily_data$close,
-  dividend = daily_data$dividend
+  time_vec = price_data$dt,
+  open = price_data$open,
+  high = price_data$high,
+  low = price_data$low,
+  close = price_data$close,
+  dividend = price_data$dividend,
+  timestamp_priority = "last" # Use last day for weekly/monthly option-style analysis
 )
 
 # --- Calculate indicators ---
@@ -112,7 +113,7 @@ results_with_periods <- strategy_results %>%
   inner_join(select(data_for_backtest, dt, period_start_dt, period_end_dt), by = "dt")
 
 # Re-create the dividend_df needed for the ad-hoc script from the raw daily data
-dividend_df_for_adhoc <- daily_data %>%
+dividend_df_for_adhoc <- price_data %>%
   filter(dividend > 0) %>%
   select(ex_date = dt, dividend_amount = dividend)
 
