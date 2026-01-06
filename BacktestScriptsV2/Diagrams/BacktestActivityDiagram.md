@@ -1,79 +1,66 @@
 ```mermaid
-activityDiagram
-    title Backtest Process Flow
+graph TD
+    subgraph MainScript.R
+        A[1. Sourcing & Configuration] --> B(2. Data Preparation);
+        B --> C{Connect to DB};
+        C --> D[Fetch daily price data];
+        D --> E[Disconnect from DB];
+    end
 
-    |MainScript.R|
-    start
-    :1. Sourcing & Configuration;
-    :Source R scripts (Preprocessor, AdhocCalcs);
-    :Compile & source C++ files via Rcpp
-    (BacktestHandler, ultimate_smoother);
-    :Set configuration (TIME_FRAME, DB_PATH);
+    subgraph Preprocessor.R
+        F[Call to_agg_timeframe];
+    end
+    
+    subgraph MainScript.R
+        E --> F;
+    end
 
-    :2. Data Preparation;
-    :Connect to DuckDB;
-    :Fetch daily price data via SQL;
-    :Disconnect from DB;
+    subgraph ultimate_smoother.cpp
+        G[Call ultimateSmoother in a loop];
+    end
 
-    |#LightBlue:Preprocessor.R|
-    :Call to_agg_timeframe();
-    note right: Aggregates daily data to<br>the specified TIME_FRAME (e.g., '1w').
-    
-    |MainScript.R|
-    :Data Aggregated;
+    subgraph MainScript.R
+        F --> G;
+        G --> H[Indicators Calculated];
+        H --> I[Filter data];
+        I --> J[3. Backtest Execution];
+        J --> K[Define strategy config];
+    end
 
-    |#Thistle:ultimate_smoother.cpp|
-    :Call ultimateSmoother() in a loop;
-    note right: C++ function calculates<br>technical indicators for each row.
+    subgraph BacktestHandler.cpp
+        L[Call run_backtest_r];
+        subgraph Backtest Core Loop
+            M{Loop through data};
+            M --> N{In open position?};
+            N -- Yes --> O{Check for exit signal?};
+            O -- Yes --> P[Close Position];
+            O -- No --> Q{Stop-loss / Take-profit hit?};
+            Q -- Yes --> P;
+            Q -- No --> R[Hold Position];
+            N -- No --> S{Check for entry signal?};
+            S -- Yes --> T[Open Position];
+            S -- No --> U[Continue to next row];
+            T --> U;
+            P --> U;
+R --> U;
+            U --> M;
+        end
+        L --> M;
+    end
     
-    |MainScript.R|
-    :Indicators Calculated;
-    :Filter data for backtest period;
-    
-    :3. Backtest Execution;
-    :Define strategy configuration list (strategy_cfg)
-    including entry/exit signal functions in R;
-    
-    |#Coral:BacktestHandler.cpp|
-    :Call run_backtest_r();
-    partition Backtest Core Logic {
-        :Loop through each row of the time-series data;
-        if (In an open position?) then (yes)
-            :Check for exit signal (calls R function);
-            if (Exit signal triggered?) then (yes)
-                :Close position;
-                :Record trade;
-            else (no)
-                :Check for stop-loss or take-profit;
-                if (SL/TP hit?) then (yes)
-                    :Close position;
-                    :Record trade;
-                else (no)
-                    :Hold position;
-                endif
-            endif
-        else (no)
-            :Check for entry signal (calls R function);
-            if (Entry signal triggered?) then (yes)
-                :Open new position;
-            endif
-        endif
-        :Update equity and performance metrics;
-    }
-    :Return results data.frame;
+    subgraph MainScript.R
+        K --> L;
+        L --> V[Backtest Finished];
+        V --> W[Print results];
+        W --> X[4. Ad-hoc Analysis];
+    end
 
-    |MainScript.R|
-    :Backtest Finished;
-    :Print results summary;
-    
-    :4. Ad-hoc Analysis;
-    :Prepare data for analysis;
+    subgraph AdhocCalcsScript.R
+        Y[Call calculate_short_dividend_cost];
+    end
 
-    |#LightGreen:AdhocCalcsScript.R|
-    :Call calculate_short_dividend_cost();
-    note right: Performs post-backtest<br>dividend cost calculation.
-    
-    |MainScript.R|
-    :Analysis Complete;
-    stop
+    subgraph MainScript.R
+        X --> Y;
+        Y --> Z[Analysis Complete];
+    end
 ```
